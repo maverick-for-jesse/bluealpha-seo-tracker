@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Add Keyword — Blue Alpha SEO{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-8 col-lg-6">
+    <h4 class="fw-bold mb-4" style="color:var(--ba-navy)">
+      <i class="bi bi-plus-circle me-2"></i>Add Keyword
+    </h4>
+
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-search me-2"></i>New Keyword to Track
+      </div>
+      <div class="card-body p-4">
+        <form method="POST" action="{{ url_for('add_keyword') }}" id="addForm">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Keyword</label>
+            <input type="text" name="keyword" class="form-control form-control-lg"
+                   placeholder="e.g. leather gun belts" required autofocus />
+            <div class="form-text">
+              We'll check Google (US) for bluealphabelts.com and record the position immediately.
+            </div>
+          </div>
+          <button type="submit" class="btn btn-navy w-100 py-2 fw-semibold" id="submitBtn">
+            <i class="bi bi-plus-circle me-2"></i>Add & Check Rank
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Result card -->
+    {% if result %}
+    <div class="card mt-4">
+      <div class="card-header bg-success text-white">
+        <i class="bi bi-check-circle me-2"></i>Keyword Added!
+      </div>
+      <div class="card-body">
+        <h5 class="fw-bold mb-3">{{ result.keyword }}</h5>
+        {% if result.error %}
+          <div class="alert alert-warning mb-0">
+            <i class="bi bi-exclamation-triangle me-2"></i>Rank check failed: {{ result.error }}
+          </div>
+        {% elif result.position %}
+          <div class="row g-3">
+            <div class="col-6">
+              <div class="text-center p-3 rounded" style="background:var(--ba-accent)">
+                <div class="fw-bold" style="font-size:2.5rem;color:var(--ba-navy)">#{{ result.position }}</div>
+                <div class="text-muted small">Current Position</div>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="text-center p-3 rounded" style="background:var(--ba-accent)">
+                <div class="fw-bold" style="font-size:1.1rem;color:var(--ba-blue)">
+                  {% if result.position <= 3 %}🥇 Top 3!
+                  {% elif result.position <= 10 %}🎯 Top 10
+                  {% elif result.position <= 30 %}📊 Top 30
+                  {% else %}📋 Top 100{% endif %}
+                </div>
+                <div class="text-muted small mt-1">Status</div>
+              </div>
+            </div>
+          </div>
+          {% if result.url %}
+          <div class="mt-3">
+            <div class="text-muted small fw-semibold mb-1">Ranking URL:</div>
+            <a href="{{ result.url }}" target="_blank" class="text-break small">{{ result.url }}</a>
+          </div>
+          {% endif %}
+        {% else %}
+          <div class="alert alert-secondary mb-0">
+            <i class="bi bi-info-circle me-2"></i>
+            bluealphabelts.com was not found in the top 100 results for this keyword.
+          </div>
+        {% endif %}
+        <div class="d-flex gap-2 mt-3">
+          <a href="{{ url_for('dashboard') }}" class="btn btn-navy">
+            <i class="bi bi-speedometer2 me-1"></i>Dashboard
+          </a>
+          <a href="{{ url_for('add_keyword') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-plus"></i> Add Another
+          </a>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('addForm').addEventListener('submit', function() {
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Checking rank…';
+});
+</script>
+{% endblock %}

@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}{{ kw.keyword }} — History{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-4 flex-wrap">
+  <a href="{{ url_for('dashboard') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <div>
+    <h4 class="mb-0 fw-bold" style="color:var(--ba-navy)">{{ kw.keyword }}</h4>
+    <small class="text-muted">
+      Added {{ kw.created_at.strftime('%B %d, %Y') }} &bull;
+      {{ rankings|length }} data point{{ 's' if rankings|length != 1 else '' }}
+    </small>
+  </div>
+  {% if kw.active %}
+    <span class="badge bg-success ms-auto">Active</span>
+  {% else %}
+    <span class="badge bg-secondary ms-auto">Inactive</span>
+  {% endif %}
+</div>
+
+<!-- Current rank summary -->
+{% if rankings %}
+{% set latest = rankings[0] %}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card text-center p-3">
+      {% if latest.position %}
+        <div class="fw-bold fs-2" style="color:var(--ba-navy)">#{{ latest.position }}</div>
+        <div class="text-muted small">Current Rank</div>
+      {% else %}
+        <div class="fw-bold fs-2 text-muted">—</div>
+        <div class="text-muted small">Not in Top 100</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center p-3">
+      {% set best = rankings|selectattr('position')|map(attribute='position')|list %}
+      {% if best %}
+        <div class="fw-bold fs-2 text-success">#{{ best|min }}</div>
+        <div class="text-muted small">Best Ever</div>
+      {% else %}
+        <div class="fw-bold fs-2 text-muted">—</div>
+        <div class="text-muted small">Best Ever</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center p-3">
+      {% set ranked_count = rankings|selectattr('position')|list|length %}
+      <div class="fw-bold fs-2" style="color:var(--ba-blue)">
+        {{ ((ranked_count / rankings|length) * 100)|round|int }}%
+      </div>
+      <div class="text-muted small">Days Ranked</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center p-3">
+      <div class="fw-bold fs-2 text-muted">{{ latest.checked_at.strftime('%b %d') }}</div>
+      <div class="text-muted small">Last Checked</div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart -->
+<div class="card mb-4">
+  <div class="card-header">
+    <i class="bi bi-graph-up me-2"></i>Rank History (lower = better)
+  </div>
+  <div class="card-body">
+    <canvas id="rankChart" style="max-height:320px"></canvas>
+  </div>
+</div>
+
+<!-- History table -->
+<div class="card">
+  <div class="card-header">
+    <i class="bi bi-clock-history me-2"></i>All Checks
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Date &amp; Time</th>
+            <th class="text-center">Position</th>
+            <th>URL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rankings %}
+          <tr>
+            <td>{{ r.checked_at.strftime('%B %d, %Y — %H:%M UTC') }}</td>
+            <td class="text-center">
+              {% if r.position %}
+                {% if r.position <= 3 %}
+                  <span class="badge-rank rank-top3">{{ r.position }}</span>
+                {% elif r.position <= 10 %}
+                  <span class="badge-rank rank-top10">{{ r.position }}</span>
+                {% elif r.position <= 30 %}
+                  <span class="badge-rank rank-top30">{{ r.position }}</span>
+                {% else %}
+                  <span class="badge-rank rank-other">{{ r.position }}</span>
+                {% endif %}
+              {% else %}
+                <span class="badge-rank rank-none">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if r.url %}
+                <a href="{{ r.url }}" target="_blank" class="text-break small text-muted">
+                  <i class="bi bi-link-45deg"></i>{{ r.url|truncate(80) }}
+                </a>
+              {% else %}
+                <span class="text-muted small">Not ranked</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-clock-history" style="font-size:3rem"></i>
+    <p class="mt-2">No ranking data yet. Use "Check Now" on the dashboard to get started.</p>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-navy">Go to Dashboard</a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if rankings %}
+<script>
+const labels = {{ chart_labels|safe }};
+const data = {{ chart_data|safe }};
+
+// Filter nulls for display (null = not ranked)
+const ctx = document.getElementById('rankChart').getContext('2d');
+new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: labels,
+    datasets: [{
+      label: 'Position',
+      data: data,
+      borderColor: '#2563a8',
+      backgroundColor: 'rgba(37,99,168,0.1)',
+      borderWidth: 2.5,
+      pointBackgroundColor: data.map(p =>
+        p === null ? '#dee2e6' :
+        p <= 3 ? '#ffd700' :
+        p <= 10 ? '#28a745' :
+        p <= 30 ? '#17a2b8' : '#6c757d'
+      ),
+      pointRadius: 5,
+      pointHoverRadius: 7,
+      tension: 0.35,
+      fill: true,
+      spanGaps: true,
+    }]
+  },
+  options: {
+    responsive: true,
+    scales: {
+      y: {
+        reverse: true,  // #1 at top
+        min: 1,
+        title: { display: true, text: 'Position (lower is better)' },
+        grid: { color: 'rgba(0,0,0,.05)' }
+      },
+      x: {
+        grid: { display: false }
+      }
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: ctx => ctx.parsed.y === null ? 'Not ranked' : `Position #${ctx.parsed.y}`
+        }
+      }
+    }
+  }
+});
+</script>
+{% endif %}
+{% endblock %}

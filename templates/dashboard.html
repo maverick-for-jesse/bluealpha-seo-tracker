@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Blue Alpha SEO{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="mb-0 fw-bold" style="color:var(--ba-navy)">
+      <i class="bi bi-speedometer2 me-2"></i>Rank Dashboard
+    </h4>
+    <small class="text-muted">Target: bluealphabelts.com</small>
+  </div>
+  <div class="d-flex gap-2 flex-wrap align-items-center">
+    <!-- Sort buttons -->
+    <div class="btn-group">
+      <a href="?sort=alphabetical"
+         class="btn btn-outline-secondary sort-btn {% if sort == 'alphabetical' %}active{% endif %}">
+        <i class="bi bi-sort-alpha-down"></i> A–Z
+      </a>
+      <a href="?sort=best_rank"
+         class="btn btn-outline-secondary sort-btn {% if sort == 'best_rank' %}active{% endif %}">
+        <i class="bi bi-trophy"></i> Best Rank
+      </a>
+      <a href="?sort=biggest_movers"
+         class="btn btn-outline-secondary sort-btn {% if sort == 'biggest_movers' %}active{% endif %}">
+        <i class="bi bi-lightning"></i> Movers
+      </a>
+    </div>
+    <!-- Check Now -->
+    <button id="checkNowBtn" class="btn btn-navy" onclick="checkNow()">
+      <i class="bi bi-arrow-repeat me-1"></i>Check Now
+    </button>
+  </div>
+</div>
+
+<!-- Stats bar -->
+{% set tracked = rows|length %}
+{% set ranked = rows|selectattr('current_pos')|list|length %}
+{% set top10 = rows|selectattr('current_pos')|selectattr('current_pos', 'le', 10)|list|length %}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card text-center p-3">
+      <div class="fw-bold fs-3" style="color:var(--ba-navy)">{{ tracked }}</div>
+      <div class="text-muted small">Keywords Tracked</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center p-3">
+      <div class="fw-bold fs-3" style="color:var(--ba-blue)">{{ ranked }}</div>
+      <div class="text-muted small">Ranking (Top 100)</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center p-3">
+      <div class="fw-bold fs-3 text-success">{{ top10 }}</div>
+      <div class="text-muted small">In Top 10</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center p-3">
+      <div class="fw-bold fs-3 text-warning">
+        {% if rows and rows|selectattr('current_pos')|list %}
+          #{{ (rows|selectattr('current_pos')|map(attribute='current_pos')|list|sort)[0] }}
+        {% else %}—{% endif %}
+      </div>
+      <div class="text-muted small">Best Position</div>
+    </div>
+  </div>
+</div>
+
+<!-- Main table -->
+<div class="card">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-table me-2"></i>Keyword Rankings</span>
+    <a href="{{ url_for('add_keyword') }}" class="btn btn-sm btn-light">
+      <i class="bi bi-plus"></i> Add Keyword
+    </a>
+  </div>
+  <div class="card-body p-0">
+    {% if rows %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th style="width:40%">Keyword</th>
+            <th class="text-center">Current</th>
+            <th class="text-center">7 Days Ago</th>
+            <th class="text-center">Change</th>
+            <th class="text-center">Trend</th>
+            <th class="text-center">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>
+              <a href="{{ url_for('keyword_history', keyword_id=row.id) }}"
+                 class="fw-semibold text-decoration-none" style="color:var(--ba-navy)">
+                {{ row.keyword }}
+              </a>
+              {% if row.url %}
+              <br><a href="{{ row.url }}" target="_blank" class="text-muted"
+                     style="font-size:.75rem; word-break:break-all;">
+                <i class="bi bi-link-45deg"></i>
+                {{ row.url|truncate(60) }}
+              </a>
+              {% endif %}
+              {% if row.checked_at %}
+              <br><span class="text-muted" style="font-size:.72rem">
+                Checked: {{ row.checked_at.strftime('%b %d, %H:%M UTC') }}
+              </span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if row.current_pos %}
+                {% if row.current_pos <= 3 %}
+                  <span class="badge-rank rank-top3">{{ row.current_pos }}</span>
+                {% elif row.current_pos <= 10 %}
+                  <span class="badge-rank rank-top10">{{ row.current_pos }}</span>
+                {% elif row.current_pos <= 30 %}
+                  <span class="badge-rank rank-top30">{{ row.current_pos }}</span>
+                {% else %}
+                  <span class="badge-rank rank-other">{{ row.current_pos }}</span>
+                {% endif %}
+              {% else %}
+                <span class="badge-rank rank-none">—</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if row.old_pos %}
+                <span class="text-muted">{{ row.old_pos }}</span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if row.change is not none %}
+                {% if row.change > 0 %}
+                  <span class="change-up">▲{{ row.change }}</span>
+                {% elif row.change < 0 %}
+                  <span class="change-down">▼{{ row.change|abs }}</span>
+                {% else %}
+                  <span class="change-flat">—</span>
+                {% endif %}
+              {% else %}
+                <span class="change-flat">new</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if row.change is not none %}
+                {% if row.change > 3 %}🚀
+                {% elif row.change > 0 %}📈
+                {% elif row.change < -3 %}📉
+                {% elif row.change < 0 %}⬇️
+                {% else %}➡️
+                {% endif %}
+              {% else %}✨{% endif %}
+            </td>
+            <td class="text-center">
+              <div class="d-flex gap-1 justify-content-center">
+                <a href="{{ url_for('keyword_history', keyword_id=row.id) }}"
+                   class="btn btn-sm btn-outline-secondary" title="History">
+                  <i class="bi bi-graph-up"></i>
+                </a>
+                <form method="POST" action="{{ url_for('delete_keyword', keyword_id=row.id) }}"
+                      onsubmit="return confirm('Delete this keyword and all its history?')">
+                  <button class="btn btn-sm btn-outline-danger" title="Delete">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-search" style="font-size:3rem"></i>
+      <p class="mt-2">No keywords tracked yet.</p>
+      <a href="{{ url_for('add_keyword') }}" class="btn btn-navy">
+        <i class="bi bi-plus"></i> Add Your First Keyword
+      </a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Inactive keywords -->
+{% set inactive = all_keywords|selectattr('active', 'equalto', false)|list %}
+{% if inactive %}
+<div class="card mt-4">
+  <div class="card-header">
+    <i class="bi bi-pause-circle me-2"></i>Inactive Keywords
+    <span class="badge bg-secondary ms-2">{{ inactive|length }}</span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr><th>Keyword</th><th>Added</th><th>Actions</th></tr></thead>
+        <tbody>
+          {% for kw in inactive %}
+          <tr>
+            <td class="text-muted">{{ kw.keyword }}</td>
+            <td class="text-muted small">{{ kw.created_at.strftime('%b %d, %Y') }}</td>
+            <td>
+              <div class="d-flex gap-1">
+                <form method="POST" action="{{ url_for('toggle_keyword', keyword_id=kw.id) }}">
+                  <button class="btn btn-sm btn-outline-success">
+                    <i class="bi bi-play"></i> Activate
+                  </button>
+                </form>
+                <form method="POST" action="{{ url_for('delete_keyword', keyword_id=kw.id) }}"
+                      onsubmit="return confirm('Delete?')">
+                  <button class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Check Now progress modal -->
+<div class="modal fade" id="checkModal" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--ba-navy);color:#fff">
+        <h5 class="modal-title"><i class="bi bi-arrow-repeat me-2"></i>Checking Rankings…</h5>
+      </div>
+      <div class="modal-body text-center py-4">
+        <div class="spinner-border text-primary mb-3" style="width:3rem;height:3rem"></div>
+        <p class="text-muted mb-0">Querying SerpAPI for all active keywords.<br>This may take a minute…</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function checkNow() {
+  const modal = new bootstrap.Modal(document.getElementById('checkModal'));
+  modal.show();
+  fetch('{{ url_for("api_check_now") }}', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      modal.hide();
+      window.location.reload();
+    })
+    .catch(err => {
+      modal.hide();
+      alert('Error: ' + err);
+    });
+}
+</script>
+{% endblock %}

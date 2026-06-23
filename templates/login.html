@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Login — Blue Alpha SEO{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-sm-10 col-md-6 col-lg-4">
+    <div class="card shadow-sm mt-3">
+      <div class="card-header text-center py-4">
+        <h4 class="mb-0">🎯 Blue Alpha SEO Tracker</h4>
+        <small class="text-white-50">Admin Login</small>
+      </div>
+      <div class="card-body p-4">
+        <form method="POST" action="{{ url_for('login') }}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Email</label>
+            <input type="email" name="email" class="form-control" placeholder="jesse@bluealpha.us"
+                   value="jesse@bluealpha.us" required autofocus />
+          </div>
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Password</label>
+            <input type="password" name="password" class="form-control" placeholder="••••••••" required />
+          </div>
+          <button type="submit" class="btn btn-navy w-100 py-2 fw-semibold">
+            <i class="bi bi-box-arrow-in-right me-2"></i>Sign In
+          </button>
+        </form>
+      </div>
+    </div>
+    <p class="text-center text-muted mt-3" style="font-size:.8rem">
+      bluealphabelts.com &bull; SEO Dashboard
+    </p>
+  </div>
+</div>
+{% endblock %}
