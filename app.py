@@ -476,10 +476,18 @@ def dataforseo_keyword_data(keywords: list, location_code: int = 2840, language_
         for item in (task.get("result") or []):
             kw = item.get("keyword", "")
             comp = item.get("competition")
+            # DataForSEO returns competition as float (0-1), string float, or label ('LOW','MEDIUM','HIGH')
+            comp_map = {"LOW": 0.15, "MEDIUM": 0.5, "HIGH": 0.85}
+            if comp is None:
+                comp_float = None
+            elif isinstance(comp, str):
+                comp_float = comp_map.get(comp.upper(), None) if comp.upper() in comp_map else (float(comp) if comp else None)
+            else:
+                comp_float = float(comp)
             results[kw.lower()] = {
                 "keyword": kw,
                 "search_volume": item.get("search_volume"),
-                "competition": float(comp) if comp is not None else None,
+                "competition": comp_float,
                 "cpc": float(item["cpc"]) if item.get("cpc") is not None else None,
                 "trend": [m.get("search_volume") for m in (item.get("monthly_searches") or [])[-3:]],
             }
