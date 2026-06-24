@@ -791,8 +791,6 @@ def cannibalization():
 # Content Ideas — People Also Ask
 # ---------------------------------------------------------------------------
 
-@app.route("/keywords/<int:keyword_id>/fetch-questions", methods=["POST"])
-@login_required
 @app.route("/keywords/<int:keyword_id>/checklist-toggle", methods=["POST"])
 @login_required
 def checklist_toggle(keyword_id):
