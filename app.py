@@ -1,4 +1,6 @@
 import os
+import io
+import csv
 import json
 import logging
 from datetime import datetime, timedelta, date
@@ -8,7 +10,7 @@ from zoneinfo import ZoneInfo
 import requests
 from flask import (
     Flask, render_template, redirect, url_for, request,
-    flash, jsonify, abort
+    flash, jsonify, abort, Response
 )
 from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
@@ -66,6 +68,9 @@ def get_twilio_config():
 TARGET_DOMAIN = "bluealphabelts.com"
 ADMIN_EMAIL = "jesse@bluealpha.us"
 ADMIN_PASSWORD_HASH = generate_password_hash("BlueAlphaSEO2026!")
+
+DATAFORSEO_LOGIN = os.environ.get("DATAFORSEO_LOGIN", "jesse@bluealpha.us")
+DATAFORSEO_PASSWORD = os.environ.get("DATAFORSEO_PASSWORD", "6b56bc77d7e38ca0")
 
 # ---------------------------------------------------------------------------
 # Models
@@ -441,6 +446,200 @@ def cron_weekly_summary():
 def api_check_now():
     results = check_all_active_keywords()
     return jsonify({"status": "ok", "results": results})
+
+
+# ---------------------------------------------------------------------------
+# DataForSEO — Keyword Research
+# ---------------------------------------------------------------------------
+
+def dataforseo_keyword_data(keywords: list, location_code: int = 2840, language_code: str = "en"):
+    """
+    Fetch search volume + competition + CPC for a list of keywords via DataForSEO.
+    Returns list of dicts keyed by keyword.
+    """
+    url = "https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live"
+    payload = [{"keywords": keywords, "location_code": location_code, "language_code": language_code}]
+    resp = requests.post(
+        url,
+        auth=(DATAFORSEO_LOGIN, DATAFORSEO_PASSWORD),
+        json=payload,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    results = {}
+    tasks = data.get("tasks", [])
+    for task in tasks:
+        if task.get("status_code") != 20000:
+            raise ValueError(f"DataForSEO error: {task.get('status_message', 'Unknown error')}")
+        for item in (task.get("result") or []):
+            kw = item.get("keyword", "")
+            results[kw.lower()] = {
+                "keyword": kw,
+                "search_volume": item.get("search_volume"),
+                "competition": item.get("competition"),          # 0.0–1.0
+                "cpc": item.get("cpc"),
+                "trend": [m.get("search_volume") for m in (item.get("monthly_searches") or [])[-3:]],
+            }
+    return results
+
+
+def dataforseo_related_keywords(seed: str, location_code: int = 2840, language_code: str = "en"):
+    """
+    Fetch keyword suggestions/ideas for a seed via DataForSEO keyword_ideas endpoint.
+    Returns list of keyword strings (top 20 by volume).
+    """
+    url = "https://api.dataforseo.com/v3/keywords_data/google_ads/keywords_for_keywords/live"
+    payload = [{"keywords": [seed], "location_code": location_code, "language_code": language_code}]
+    resp = requests.post(
+        url,
+        auth=(DATAFORSEO_LOGIN, DATAFORSEO_PASSWORD),
+        json=payload,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    keywords = []
+    for task in data.get("tasks", []):
+        for item in (task.get("result") or []):
+            kw = item.get("keyword", "")
+            vol = item.get("search_volume") or 0
+            if kw and kw.lower() != seed.lower():
+                keywords.append((kw, vol))
+
+    keywords.sort(key=lambda x: x[1], reverse=True)
+    return [k for k, _ in keywords[:30]]
+
+
+@app.route("/keyword-research", methods=["GET", "POST"])
+@login_required
+def keyword_research():
+    results = None
+    suggestions = []
+    query = None
+    error = None
+    location_code = request.form.get("location_code", "2840")
+
+    if request.method == "POST":
+        query = request.form.get("keyword", "").strip()
+        if not query:
+            flash("Please enter a keyword.", "warning")
+            return render_template("keyword_research.html", results=None, query=None,
+                                   location_code=location_code)
+        try:
+            loc = int(location_code)
+            # Build a list: seed + related suggestions
+            related = dataforseo_related_keywords(query, location_code=loc)
+            all_keywords = list({query} | set(related[:29]))  # max 30 total
+
+            # Get volume data for all
+            volume_data = dataforseo_keyword_data(all_keywords, location_code=loc)
+
+            # Get currently tracked keywords for badge
+            tracked_set = {kw.keyword.lower() for kw in Keyword.query.all()}
+
+            results = []
+            for kw_text in all_keywords:
+                d = volume_data.get(kw_text.lower(), {})
+                results.append({
+                    "keyword": d.get("keyword", kw_text),
+                    "search_volume": d.get("search_volume"),
+                    "competition": d.get("competition"),
+                    "cpc": d.get("cpc"),
+                    "trend": d.get("trend", []),
+                    "already_tracked": kw_text.lower() in tracked_set,
+                })
+
+            # Sort: seed first, then by volume desc
+            results.sort(key=lambda r: (
+                r["keyword"].lower() != query.lower(),
+                -(r["search_volume"] or 0)
+            ))
+
+            # Suggestions = related keywords not in main results (chips)
+            suggestions = [r["keyword"] for r in results[1:15]]
+
+        except Exception as e:
+            logger.error(f"DataForSEO error: {e}")
+            error = f"Keyword research failed: {e}"
+
+    return render_template(
+        "keyword_research.html",
+        results=results,
+        query=query,
+        suggestions=suggestions,
+        error=error,
+        location_code=location_code,
+    )
+
+
+@app.route("/keyword-research/add-tracked", methods=["POST"])
+@login_required
+def keyword_research_add_tracked():
+    kw_text = request.form.get("keyword", "").strip()
+    return_query = request.form.get("return_query", "")
+    return_location = request.form.get("return_location", "2840")
+
+    if kw_text:
+        existing = Keyword.query.filter(func.lower(Keyword.keyword) == kw_text.lower()).first()
+        if existing:
+            flash(f'"{kw_text}" is already being tracked.', "info")
+        else:
+            kw = Keyword(keyword=kw_text)
+            db.session.add(kw)
+            db.session.commit()
+            # Immediately check rank
+            try:
+                position, url = check_rank_for_keyword(kw_text)
+                store_ranking(kw.id, position, url)
+                pos_str = f"#{position}" if position else "not in top 100"
+                flash(f'✅ "{kw_text}" added to rank tracker — currently {pos_str}.', "success")
+            except Exception as e:
+                flash(f'"{kw_text}" added to tracker (rank check failed: {e}).', "warning")
+
+    # Redirect back to results
+    if return_query:
+        return redirect(url_for("keyword_research") + f"?_restore=1")
+    return redirect(url_for("keyword_research"))
+
+
+@app.route("/keyword-research/export")
+@login_required
+def keyword_research_export():
+    query = request.args.get("query", "").strip()
+    location_code = int(request.args.get("location_code", "2840"))
+    if not query:
+        return redirect(url_for("keyword_research"))
+
+    try:
+        related = dataforseo_related_keywords(query, location_code=location_code)
+        all_keywords = list({query} | set(related[:29]))
+        volume_data = dataforseo_keyword_data(all_keywords, location_code=location_code)
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Keyword", "Monthly Search Volume", "Competition (0-1)", "CPC ($)"])
+        for kw_text in all_keywords:
+            d = volume_data.get(kw_text.lower(), {})
+            writer.writerow([
+                d.get("keyword", kw_text),
+                d.get("search_volume", ""),
+                d.get("competition", ""),
+                d.get("cpc", ""),
+            ])
+
+        output.seek(0)
+        filename = f"keyword-research-{query.replace(' ', '-')}.csv"
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        flash(f"Export failed: {e}", "danger")
+        return redirect(url_for("keyword_research"))
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% block title %}Keyword Research — Blue Alpha SEO{% endblock %}
+
+{% block head %}
+<style>
+  .volume-high { color: #16a34a; font-weight: 700; }
+  .volume-mid  { color: #d97706; font-weight: 700; }
+  .volume-low  { color: #6c757d; font-weight: 600; }
+  .comp-bar { height: 8px; border-radius: 4px; background: #e2e8f0; }
+  .comp-fill { height: 8px; border-radius: 4px; background: var(--ba-blue); }
+  .suggestion-badge { cursor: pointer; transition: all .15s; }
+  .suggestion-badge:hover { background: var(--ba-navy) !important; color: #fff !important; }
+  .results-table th { white-space: nowrap; }
+  #spinner { display: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-3">
+  <div>
+    <h2 class="mb-0 fw-bold" style="color:var(--ba-navy)">🔍 Keyword Research</h2>
+    <p class="text-muted mb-0" style="font-size:.9rem">Find search volume & competition for product naming</p>
+  </div>
+</div>
+
+<!-- Search form -->
+<div class="card mb-4">
+  <div class="card-header"><i class="bi bi-search me-2"></i>Search Keywords</div>
+  <div class="card-body">
+    <form method="POST" id="researchForm">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-7">
+          <label class="form-label fw-semibold">Seed Keyword</label>
+          <input type="text" name="keyword" class="form-control form-control-lg"
+                 placeholder="e.g. leather gun belt, EDC belt, tactical belt"
+                 value="{{ query or '' }}" required autofocus>
+          <div class="form-text">Enter a product name or idea — we'll show volume, competition, and related terms.</div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">Country</label>
+          <select name="location_code" class="form-select form-select-lg">
+            <option value="2840" {% if location_code == '2840' %}selected{% endif %}>🇺🇸 United States</option>
+            <option value="2826" {% if location_code == '2826' %}selected{% endif %}>🇬🇧 United Kingdom</option>
+            <option value="2036" {% if location_code == '2036' %}selected{% endif %}>🇦🇺 Australia</option>
+            <option value="2124" {% if location_code == '2124' %}selected{% endif %}>🇨🇦 Canada</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <button type="submit" class="btn btn-navy btn-lg w-100" id="searchBtn">
+            <span id="spinner" class="spinner-border spinner-border-sm me-1"></span>
+            <i class="bi bi-search" id="searchIcon"></i> Search
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>
+{% endif %}
+
+{% if results %}
+<!-- Summary cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card text-center p-3">
+      <div class="fw-bold fs-4" style="color:var(--ba-navy)">{{ results|length }}</div>
+      <div class="text-muted" style="font-size:.85rem">Keywords Found</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center p-3">
+      {% set max_vol = results | map(attribute='search_volume') | select('number') | list %}
+      <div class="fw-bold fs-4 volume-high">{{ "{:,}".format(max_vol | max) if max_vol else '—' }}</div>
+      <div class="text-muted" style="font-size:.85rem">Highest Volume</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center p-3">
+      {% set tracked_hits = results | selectattr('already_tracked') | list %}
+      <div class="fw-bold fs-4" style="color:var(--ba-blue)">{{ tracked_hits|length }}</div>
+      <div class="text-muted" style="font-size:.85rem">Already Tracked</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center p-3">
+      {% set high_vol = results | selectattr('search_volume', 'greaterthan', 999) | list %}
+      <div class="fw-bold fs-4" style="color:#d97706">{{ high_vol|length }}</div>
+      <div class="text-muted" style="font-size:.85rem">High Volume (1k+)</div>
+    </div>
+  </div>
+</div>
+
+<!-- Related / suggestion chips -->
+{% if suggestions %}
+<div class="card mb-4">
+  <div class="card-header"><i class="bi bi-lightning-charge me-2"></i>Related Searches — click to search</div>
+  <div class="card-body d-flex flex-wrap gap-2">
+    {% for s in suggestions %}
+    <form method="POST" style="display:inline">
+      <input type="hidden" name="keyword" value="{{ s }}">
+      <input type="hidden" name="location_code" value="{{ location_code }}">
+      <button type="submit" class="badge suggestion-badge text-decoration-none border-0"
+              style="background:#e8f0fe;color:var(--ba-navy);font-size:.85rem;padding:6px 12px">
+        {{ s }}
+      </button>
+    </form>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Results table -->
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-table me-2"></i>Results for "{{ query }}"</span>
+    <a href="{{ url_for('keyword_research_export', query=query, location_code=location_code) }}"
+       class="btn btn-sm btn-outline-light">
+      <i class="bi bi-download me-1"></i>Export CSV
+    </a>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover results-table mb-0 align-middle">
+      <thead>
+        <tr>
+          <th>Keyword</th>
+          <th class="text-end">Monthly Volume</th>
+          <th class="text-end">CPC</th>
+          <th style="min-width:120px">Competition</th>
+          <th class="text-center">3-Mo Trend</th>
+          <th class="text-center">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr>
+          <td>
+            <span class="fw-semibold">{{ r.keyword }}</span>
+            {% if r.already_tracked %}
+            <span class="badge bg-success ms-2" style="font-size:.7rem">Tracked</span>
+            {% endif %}
+          </td>
+          <td class="text-end">
+            {% if r.search_volume is not none and r.search_volume > 0 %}
+              {% if r.search_volume >= 10000 %}
+                <span class="volume-high">{{ "{:,}".format(r.search_volume) }}</span>
+              {% elif r.search_volume >= 1000 %}
+                <span class="volume-mid">{{ "{:,}".format(r.search_volume) }}</span>
+              {% else %}
+                <span class="volume-low">{{ "{:,}".format(r.search_volume) }}</span>
+              {% endif %}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="text-end">
+            {% if r.cpc is not none %}
+              <span class="text-dark">${{ "%.2f"|format(r.cpc) }}</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.competition is not none %}
+              <div class="comp-bar mb-1">
+                <div class="comp-fill" style="width:{{ (r.competition * 100)|int }}%"></div>
+              </div>
+              <small class="text-muted">
+                {% if r.competition < 0.33 %}Low{% elif r.competition < 0.66 %}Medium{% else %}High{% endif %}
+                ({{ "%.0f"|format(r.competition * 100) }}%)
+              </small>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {% if r.trend %}
+              {% set trend_vals = r.trend %}
+              {% set first = trend_vals[0] %}
+              {% set last = trend_vals[-1] %}
+              {% if last > first %}
+                <span class="change-up"><i class="bi bi-trending-up"></i></span>
+              {% elif last < first %}
+                <span class="change-down"><i class="bi bi-trending-down"></i></span>
+              {% else %}
+                <span class="change-flat"><i class="bi bi-dash"></i></span>
+              {% endif %}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {% if r.already_tracked %}
+              <span class="text-muted" style="font-size:.8rem">✓ tracking</span>
+            {% else %}
+              <form method="POST" action="{{ url_for('keyword_research_add_tracked') }}">
+                <input type="hidden" name="keyword" value="{{ r.keyword }}">
+                <input type="hidden" name="return_query" value="{{ query }}">
+                <input type="hidden" name="return_location" value="{{ location_code }}">
+                <button type="submit" class="btn btn-sm btn-outline-primary" title="Add to rank tracker">
+                  <i class="bi bi-plus-circle me-1"></i>Track
+                </button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('researchForm').addEventListener('submit', function() {
+  document.getElementById('spinner').style.display = 'inline-block';
+  document.getElementById('searchIcon').style.display = 'none';
+  document.getElementById('searchBtn').disabled = true;
+});
+</script>
+{% endblock %}
