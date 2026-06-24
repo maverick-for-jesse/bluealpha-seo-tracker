@@ -172,7 +172,7 @@ class ContentIdea(db.Model):
 class SearchHistory(db.Model):
     __tablename__ = "search_history"
     id = db.Column(db.Integer, primary_key=True)
-    query = db.Column(db.String(500), nullable=False)
+    search_query = db.Column("query", db.String(500), nullable=False)
     location_code = db.Column(db.String(10), default="2840")
     searched_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
@@ -862,13 +862,13 @@ def save_search_history(query, location_code="2840"):
     """Save a keyword research search, keeping only the last 10 unique queries."""
     # Remove duplicate if already in history
     existing = SearchHistory.query.filter(
-        func.lower(SearchHistory.query) == query.lower()
+        func.lower(SearchHistory.search_query) == query.lower()
     ).first()
     if existing:
         db.session.delete(existing)
         db.session.commit()
     # Add new entry
-    entry = SearchHistory(query=query, location_code=str(location_code))
+    entry = SearchHistory(search_query=query, location_code=str(location_code))
     db.session.add(entry)
     db.session.commit()
     # Keep only 10 most recent

@@ -36,10 +36,10 @@
   <span class="text-muted small fw-semibold">Recent:</span>
   {% for s in recent_searches %}
   <form method="POST" style="display:inline">
-    <input type="hidden" name="keyword" value="{{ s.query }}">
+    <input type="hidden" name="keyword" value="{{ s.search_query }}">
     <input type="hidden" name="location_code" value="{{ s.location_code }}">
     <button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:.82rem">
-      <i class="bi bi-clock-history me-1" style="font-size:.7rem"></i>{{ s.query }}
+      <i class="bi bi-clock-history me-1" style="font-size:.7rem"></i>{{ s.search_query }}
     </button>
   </form>
   {% endfor %}
