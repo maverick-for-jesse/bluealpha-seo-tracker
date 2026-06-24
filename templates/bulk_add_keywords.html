@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Bulk Add Keywords — Blue Alpha SEO{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-4">
+  <h4 class="mb-0 fw-bold" style="color:var(--ba-navy)">
+    <i class="bi bi-list-ul me-2"></i>Bulk Add Keywords
+  </h4>
+</div>
+
+<div class="row g-4">
+  <div class="col-md-5">
+    <div class="card">
+      <div class="card-header">Paste Keywords</div>
+      <div class="card-body">
+        <form method="POST" id="bulkForm">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">One keyword per line</label>
+            <textarea name="keywords" class="form-control" rows="18"
+                      placeholder="edc belts&#10;hybrid edc belt&#10;battle belt lite&#10;pistol magazine pouch&#10;..."
+                      required>{% if request.method == 'POST' %}{{ request.form.get('keywords','') }}{% endif %}</textarea>
+            <div class="form-text">Each keyword will be ranked + volume-checked immediately.</div>
+          </div>
+          <button type="submit" class="btn btn-navy w-100" id="bulkBtn">
+            <span id="bulkSpinner" class="spinner-border spinner-border-sm me-1" style="display:none"></span>
+            <i class="bi bi-plus-circle me-1" id="bulkIcon"></i>Add All & Check Ranks
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-7">
+    {% if results %}
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Results — {{ results|length }} keywords added</span>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-sm btn-outline-light">View Dashboard</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Keyword</th>
+              <th class="text-center">Rank</th>
+              <th class="text-end">Volume</th>
+              <th class="text-end">Est. Traffic</th>
+              <th class="text-center">Difficulty</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in results %}
+            <tr>
+              <td class="fw-semibold">{{ r.keyword }}</td>
+              <td class="text-center">
+                {% if r.position %}
+                  {% if r.position <= 3 %}
+                    <span class="badge-rank rank-top3">{{ r.position }}</span>
+                  {% elif r.position <= 10 %}
+                    <span class="badge-rank rank-top10">{{ r.position }}</span>
+                  {% elif r.position <= 30 %}
+                    <span class="badge-rank rank-top30">{{ r.position }}</span>
+                  {% else %}
+                    <span class="badge-rank rank-other">{{ r.position }}</span>
+                  {% endif %}
+                {% else %}
+                  <span class="badge-rank rank-none">—</span>
+                {% endif %}
+              </td>
+              <td class="text-end">
+                {% if r.monthly_volume %}
+                  {% if r.monthly_volume >= 10000 %}
+                    <span class="volume-high">{{ "{:,}".format(r.monthly_volume) }}</span>
+                  {% elif r.monthly_volume >= 1000 %}
+                    <span class="volume-mid">{{ "{:,}".format(r.monthly_volume) }}</span>
+                  {% else %}
+                    <span class="volume-low">{{ "{:,}".format(r.monthly_volume) }}</span>
+                  {% endif %}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td class="text-end">
+                {% if r.traffic_1 %}
+                  <span class="text-success fw-semibold">~{{ "{:,}".format(r.traffic_1) }}/mo</span>
+                  <br><span class="text-muted" style="font-size:.75rem">if #1</span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                {% if r.difficulty is not none %}
+                  {% set diff = r.difficulty|int %}
+                  {% if diff < 30 %}
+                    <span class="diff-easy">{{ diff }}</span>
+                  {% elif diff < 60 %}
+                    <span class="diff-medium">{{ diff }}</span>
+                  {% else %}
+                    <span class="diff-hard">{{ diff }}</span>
+                  {% endif %}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="card h-100">
+      <div class="card-body d-flex flex-column align-items-center justify-content-center text-muted py-5">
+        <i class="bi bi-list-ul" style="font-size:3rem"></i>
+        <p class="mt-3 mb-1 fw-semibold">Paste your keywords on the left</p>
+        <p class="small text-center">One per line. We'll rank check and pull search volume<br>for all of them in one shot.</p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('bulkForm').addEventListener('submit', function() {
+  document.getElementById('bulkSpinner').style.display = 'inline-block';
+  document.getElementById('bulkIcon').style.display = 'none';
+  document.getElementById('bulkBtn').disabled = true;
+  document.getElementById('bulkBtn').innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Checking ranks & volume… this may take a minute';
+});
+</script>
+{% endblock %}

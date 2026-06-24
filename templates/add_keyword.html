@@ -42,7 +42,7 @@
             <i class="bi bi-exclamation-triangle me-2"></i>Rank check failed: {{ result.error }}
           </div>
         {% elif result.position %}
-          <div class="row g-3">
+          <div class="row g-3 mb-3">
             <div class="col-6">
               <div class="text-center p-3 rounded" style="background:var(--ba-accent)">
                 <div class="fw-bold" style="font-size:2.5rem;color:var(--ba-navy)">#{{ result.position }}</div>
@@ -61,16 +61,54 @@
               </div>
             </div>
           </div>
+
+          {% if result.monthly_volume %}
+          <div class="row g-3 mb-3">
+            <div class="col-6">
+              <div class="text-center p-3 rounded" style="background:#f0fff4">
+                <div class="fw-bold text-success" style="font-size:1.4rem">{{ "{:,}".format(result.monthly_volume) }}</div>
+                <div class="text-muted small">Monthly Searches</div>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="text-center p-3 rounded" style="background:#f0fff4">
+                <div class="fw-bold text-success" style="font-size:1.4rem">
+                  ~{{ "{:,}".format(result.traffic_estimates[result.position] or 0) }}
+                </div>
+                <div class="text-muted small">Est. Visits/mo at #{{ result.position }}</div>
+              </div>
+            </div>
+          </div>
+          {% if result.traffic_estimates %}
+          <div class="p-3 rounded mb-3" style="background:#f4f7fb">
+            <div class="text-muted small fw-semibold mb-2">Traffic Potential</div>
+            <div class="d-flex gap-3 flex-wrap">
+              {% for pos, traffic in result.traffic_estimates.items() %}
+              <div class="text-center">
+                <div class="fw-bold {% if pos == result.position %}text-success{% else %}text-muted{% endif %}">
+                  ~{{ "{:,}".format(traffic) }}
+                </div>
+                <div style="font-size:.75rem;color:#9ca3af">if #{{ pos }}</div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+          {% endif %}
+
           {% if result.url %}
-          <div class="mt-3">
+          <div class="mt-2 mb-3">
             <div class="text-muted small fw-semibold mb-1">Ranking URL:</div>
             <a href="{{ result.url }}" target="_blank" class="text-break small">{{ result.url }}</a>
           </div>
           {% endif %}
         {% else %}
-          <div class="alert alert-secondary mb-0">
+          <div class="alert alert-secondary mb-3">
             <i class="bi bi-info-circle me-2"></i>
             bluealphabelts.com was not found in the top 100 results for this keyword.
+            {% if result.monthly_volume %}
+            <br><strong>{{ "{:,}".format(result.monthly_volume) }} monthly searches</strong> — worth optimizing for.
+            {% endif %}
           </div>
         {% endif %}
         <div class="d-flex gap-2 mt-3">
@@ -79,6 +117,9 @@
           </a>
           <a href="{{ url_for('add_keyword') }}" class="btn btn-outline-secondary">
             <i class="bi bi-plus"></i> Add Another
+          </a>
+          <a href="{{ url_for('bulk_add_keywords') }}" class="btn btn-outline-primary">
+            <i class="bi bi-list-ul"></i> Bulk Add
           </a>
         </div>
       </div>

@@ -74,6 +74,10 @@
            href="{{ url_for('add_keyword') }}">
           <i class="bi bi-plus-circle"></i> Add Keyword
         </a>
+        <a class="nav-link {% if request.endpoint == 'bulk_add_keywords' %}active{% endif %}"
+           href="{{ url_for('bulk_add_keywords') }}">
+          <i class="bi bi-list-ul"></i> Bulk Add
+        </a>
         <a class="nav-link {% if request.endpoint == 'keyword_research' %}active{% endif %}"
            href="{{ url_for('keyword_research') }}">
           <i class="bi bi-search"></i> Keyword Research

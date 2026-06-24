@@ -582,7 +582,95 @@ def add_keyword():
             except Exception as e:
                 flash(f"Keyword added, but rank check failed: {e}", "warning")
                 result = {"keyword": kw_text, "error": str(e)}
+            # Fetch search volume from DataForSEO
+            try:
+                vol_data = dataforseo_keyword_data([kw_text])
+                d = vol_data.get(kw_text.lower(), {})
+                vol = d.get("search_volume")
+                comp = d.get("competition")
+                cpc = d.get("cpc")
+                if vol is not None:
+                    kw.monthly_volume = vol
+                    db.session.commit()
+                if result:
+                    result["monthly_volume"] = vol
+                    result["competition"] = comp
+                    result["cpc"] = cpc
+                    result["difficulty"] = estimate_seo_difficulty(vol, comp, cpc)
+                    result["traffic_estimates"] = {
+                        pos: estimate_traffic(pos, vol)
+                        for pos in [1, 3, 5, 10]
+                    } if vol else None
+            except Exception as e:
+                logger.warning(f"Volume fetch failed for {kw_text}: {e}")
     return render_template("add_keyword.html", result=result)
+
+
+@app.route("/keywords/bulk-add", methods=["GET", "POST"])
+@login_required
+def bulk_add_keywords():
+    results = []
+    if request.method == "POST":
+        raw = request.form.get("keywords", "").strip()
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        if not lines:
+            flash("Please enter at least one keyword.", "warning")
+            return render_template("bulk_add_keywords.html", results=None)
+
+        added = []
+        skipped = []
+        for kw_text in lines:
+            if Keyword.query.filter(func.lower(Keyword.keyword) == kw_text.lower()).first():
+                skipped.append(kw_text)
+                continue
+            kw = Keyword(keyword=kw_text)
+            db.session.add(kw)
+            added.append(kw_text)
+        db.session.commit()
+
+        # Fetch volumes for all new keywords in one DataForSEO call
+        if added:
+            try:
+                vol_data = dataforseo_keyword_data(added)
+                for kw_text in added:
+                    d = vol_data.get(kw_text.lower(), {})
+                    vol = d.get("search_volume")
+                    comp = d.get("competition")
+                    cpc_val = d.get("cpc")
+                    kw_obj = Keyword.query.filter(func.lower(Keyword.keyword) == kw_text.lower()).first()
+                    if kw_obj and vol is not None:
+                        kw_obj.monthly_volume = vol
+                    results.append({
+                        "keyword": kw_text,
+                        "monthly_volume": vol,
+                        "difficulty": estimate_seo_difficulty(vol, comp, cpc_val),
+                        "traffic_1": estimate_traffic(1, vol) if vol else None,
+                        "traffic_5": estimate_traffic(5, vol) if vol else None,
+                    })
+                db.session.commit()
+            except Exception as e:
+                logger.warning(f"Bulk volume fetch failed: {e}")
+                for kw_text in added:
+                    results.append({"keyword": kw_text, "monthly_volume": None,
+                                    "difficulty": None, "traffic_1": None, "traffic_5": None})
+
+        # Now check ranks for all added keywords
+        for r in results:
+            try:
+                position, url = check_rank_for_keyword(r["keyword"])
+                kw_obj = Keyword.query.filter(func.lower(Keyword.keyword) == r["keyword"].lower()).first()
+                if kw_obj:
+                    store_ranking(kw_obj.id, position, url)
+                r["position"] = position
+            except Exception as e:
+                r["position"] = None
+                r["rank_error"] = str(e)
+
+        if skipped:
+            flash(f'{len(skipped)} keyword(s) already existed and were skipped.', "info")
+        flash(f'✅ {len(added)} keyword(s) added and ranked.', "success")
+
+    return render_template("bulk_add_keywords.html", results=results)
 
 
 @app.route("/keywords/<int:keyword_id>/toggle", methods=["POST"])
