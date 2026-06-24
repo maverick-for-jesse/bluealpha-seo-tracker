@@ -310,6 +310,18 @@ def store_questions(keyword_id: int, questions: list):
 
 
 def store_ranking(keyword_id: int, position, url):
+    """Store a ranking — if one already exists for today (UTC), update it instead of adding a duplicate."""
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    existing = Ranking.query.filter(
+        Ranking.keyword_id == keyword_id,
+        Ranking.checked_at >= today_start,
+    ).first()
+    if existing:
+        existing.position = position
+        existing.url = url
+        existing.checked_at = datetime.utcnow()
+        db.session.commit()
+        return existing
     ranking = Ranking(
         keyword_id=keyword_id,
         checked_at=datetime.utcnow(),
