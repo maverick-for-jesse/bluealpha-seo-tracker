@@ -791,6 +791,83 @@ def cannibalization():
 # Content Ideas — People Also Ask
 # ---------------------------------------------------------------------------
 
+@app.route("/keywords/<int:keyword_id>/checklist-refresh", methods=["POST"])
+@login_required
+def checklist_refresh(keyword_id):
+    """Run the page grader on the keyword's ranking URL and auto-check items."""
+    kw = Keyword.query.get_or_404(keyword_id)
+    latest = kw.latest_ranking()
+
+    if not latest or not latest.url:
+        flash("⚠️ No ranking URL found yet — check rankings first.", "warning")
+        return redirect(url_for("keyword_history", keyword_id=keyword_id))
+
+    try:
+        analysis = analyze_page_seo(latest.url, kw.keyword)
+    except Exception as e:
+        flash(f"Failed to analyze page: {e}", "danger")
+        return redirect(url_for("keyword_history", keyword_id=keyword_id))
+
+    # Map grader results to checklist item keys
+    checks_by_name = {c["name"]: c for c in analysis["checks"]}
+    kw_lower = kw.keyword.lower()
+
+    # Ensure all checklist items exist
+    get_or_create_checklist(keyword_id)
+
+    def set_item(item_key, completed):
+        item = SeoChecklist.query.filter_by(keyword_id=keyword_id, item_key=item_key).first()
+        if item:
+            item.completed = completed
+            item.completed_at = datetime.utcnow() if completed else None
+
+    soup_data = analysis  # reuse parsed checks
+
+    # Title tag contains keyword
+    title_kw = checks_by_name.get("Keyword in Title", {})
+    set_item("title_tag", title_kw.get("status") == "pass")
+
+    # Title length
+    title_len_check = checks_by_name.get("Title Tag Length", {})
+    set_item("title_length", title_len_check.get("status") == "pass")
+
+    # Meta description
+    meta_check = checks_by_name.get("Meta Description", {})
+    meta_kw_check = checks_by_name.get("Keyword in Meta Description", {})
+    set_item("meta_desc", meta_check.get("status") in ("pass", "warn") and meta_kw_check.get("status") == "pass")
+
+    # URL slug contains keyword
+    url_lower = latest.url.lower()
+    kw_slug = kw_lower.replace(" ", "-")
+    set_item("url_slug", kw_slug in url_lower or kw_lower.replace(" ", "") in url_lower)
+
+    # H1 contains keyword
+    h1_check = checks_by_name.get("Keyword in H1", {})
+    set_item("h1_keyword", h1_check.get("status") == "pass")
+
+    # First 100 words — use keyword density and word count as proxy
+    density_check = checks_by_name.get("Keyword Density", {})
+    set_item("first_100_words", density_check.get("status") in ("pass", "warn"))
+
+    # Image alt text — pass if no images are missing alt
+    img_check = checks_by_name.get("Image Alt Text", {})
+    set_item("image_alt", img_check.get("status") == "pass")
+
+    # Internal links
+    links_check = checks_by_name.get("Internal Links", {})
+    set_item("internal_links", links_check.get("status") == "pass")
+
+    db.session.commit()
+
+    auto_count = sum(1 for k in ["title_tag", "title_length", "meta_desc", "url_slug",
+                                  "h1_keyword", "first_100_words", "image_alt", "internal_links"]
+                     if SeoChecklist.query.filter_by(keyword_id=keyword_id, item_key=k, completed=True).first())
+
+    flash(f"✅ Checklist refreshed from page grader — {auto_count}/8 auto-detected items passed. "
+          f"Score: {analysis['score']}/100. Review remaining items manually.", "success")
+    return redirect(url_for("keyword_history", keyword_id=keyword_id))
+
+
 @app.route("/keywords/<int:keyword_id>/checklist-toggle", methods=["POST"])
 @login_required
 def checklist_toggle(keyword_id):

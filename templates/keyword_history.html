@@ -177,14 +177,23 @@
 <div class="card mt-4">
   <div class="card-header d-flex align-items-center justify-content-between">
     <span><i class="bi bi-check2-square me-2"></i>SEO Ranking Checklist</span>
-    <span class="badge bg-light text-dark border" id="checklist-score">
-      {{ completed_count }}/{{ total_items }} done
-    </span>
+    <div class="d-flex align-items-center gap-2">
+      <span class="badge bg-light text-dark border" id="checklist-score">
+        {{ completed_count }}/{{ total_items }} done
+      </span>
+      {% if kw.latest_ranking() and kw.latest_ranking().url %}
+      <form method="POST" action="{{ url_for('checklist_refresh', keyword_id=kw.id) }}" class="mb-0">
+        <button type="submit" class="btn btn-sm btn-outline-light" title="Auto-check from page grader">
+          <i class="bi bi-arrow-repeat me-1"></i>Refresh from Page
+        </button>
+      </form>
+      {% endif %}
+    </div>
   </div>
   <div class="card-body">
     <p class="text-muted mb-3" style="font-size:.88rem">
-      Complete these steps to improve your ranking for <strong>"{{ kw.keyword }}"</strong>.
-      Changes are saved instantly.
+      Hit <strong>Refresh from Page</strong> to auto-check items from your live product page.
+      Items like blog posts, backlinks, and page speed must be checked manually.
     </p>
 
     <!-- Progress bar -->
