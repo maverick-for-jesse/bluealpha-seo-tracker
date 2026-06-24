@@ -184,6 +184,8 @@ class SeoChecklist(db.Model):
     item_key = db.Column(db.String(100), nullable=False)   # e.g. "title_tag"
     completed = db.Column(db.Boolean, default=False, nullable=False)
     completed_at = db.Column(db.DateTime, nullable=True)
+    status = db.Column(db.String(20), default="manual", nullable=False)  # pass/fail/warn/manual
+    detail = db.Column(db.String(500), nullable=True)  # e.g. "Title is 45 chars"
     keyword_ref = db.relationship("Keyword", backref=db.backref("checklist_items", lazy="dynamic",
                                   cascade="all, delete-orphan"))
 
@@ -626,7 +628,9 @@ def keyword_history(keyword_id):
     stored_questions = kw.questions.order_by(KeywordQuestion.fetched_at.desc()).all()
     checklist_items = get_or_create_checklist(keyword_id)
     checklist_map = {item.item_key: item for item in checklist_items}
-    completed_count = sum(1 for i in checklist_items if i.completed)
+    completed_count = sum(1 for i in checklist_items if i.status == "pass")
+    auto_detectable = {"title_tag","title_length","meta_desc","url_slug",
+                       "h1_keyword","first_100_words","image_alt","internal_links"}
 
     return render_template(
         "keyword_history.html",
@@ -639,6 +643,7 @@ def keyword_history(keyword_id):
         checklist_map=checklist_map,
         completed_count=completed_count,
         total_items=len(SEO_CHECKLIST_ITEMS),
+        auto_detectable=auto_detectable,
     )
 
 
@@ -808,63 +813,77 @@ def checklist_refresh(keyword_id):
         flash(f"Failed to analyze page: {e}", "danger")
         return redirect(url_for("keyword_history", keyword_id=keyword_id))
 
-    # Map grader results to checklist item keys
     checks_by_name = {c["name"]: c for c in analysis["checks"]}
     kw_lower = kw.keyword.lower()
 
     # Ensure all checklist items exist
     get_or_create_checklist(keyword_id)
 
-    def set_item(item_key, completed):
+    def set_item(item_key, status, detail=""):
         item = SeoChecklist.query.filter_by(keyword_id=keyword_id, item_key=item_key).first()
         if item:
-            item.completed = completed
-            item.completed_at = datetime.utcnow() if completed else None
+            item.status = status
+            item.completed = (status == "pass")
+            item.completed_at = datetime.utcnow() if status == "pass" else None
+            item.detail = detail
 
-    soup_data = analysis  # reuse parsed checks
+    def grader_status(check_name):
+        c = checks_by_name.get(check_name, {})
+        return c.get("status", "fail"), c.get("message", "")
 
     # Title tag contains keyword
-    title_kw = checks_by_name.get("Keyword in Title", {})
-    set_item("title_tag", title_kw.get("status") == "pass")
+    s, msg = grader_status("Keyword in Title")
+    set_item("title_tag", s, msg)
 
     # Title length
-    title_len_check = checks_by_name.get("Title Tag Length", {})
-    set_item("title_length", title_len_check.get("status") == "pass")
+    s, msg = grader_status("Title Tag Length")
+    set_item("title_length", s, msg)
 
-    # Meta description
-    meta_check = checks_by_name.get("Meta Description", {})
-    meta_kw_check = checks_by_name.get("Keyword in Meta Description", {})
-    set_item("meta_desc", meta_check.get("status") in ("pass", "warn") and meta_kw_check.get("status") == "pass")
+    # Meta description written & includes keyword
+    s1, msg1 = grader_status("Meta Description")
+    s2, msg2 = grader_status("Keyword in Meta Description")
+    if s1 == "fail":
+        set_item("meta_desc", "fail", msg1)
+    elif s2 == "fail":
+        set_item("meta_desc", "warn", "Meta description exists but doesn't include the keyword.")
+    else:
+        set_item("meta_desc", "pass", msg1)
 
-    # URL slug contains keyword
+    # URL slug
     url_lower = latest.url.lower()
     kw_slug = kw_lower.replace(" ", "-")
-    set_item("url_slug", kw_slug in url_lower or kw_lower.replace(" ", "") in url_lower)
+    if kw_slug in url_lower or kw_lower.replace(" ", "") in url_lower:
+        set_item("url_slug", "pass", f"Keyword found in URL: {latest.url}")
+    else:
+        set_item("url_slug", "fail", f"Keyword not found in URL: {latest.url}")
 
-    # H1 contains keyword
-    h1_check = checks_by_name.get("Keyword in H1", {})
-    set_item("h1_keyword", h1_check.get("status") == "pass")
+    # H1
+    s, msg = grader_status("Keyword in H1")
+    set_item("h1_keyword", s, msg)
 
-    # First 100 words — use keyword density and word count as proxy
-    density_check = checks_by_name.get("Keyword Density", {})
-    set_item("first_100_words", density_check.get("status") in ("pass", "warn"))
+    # First 100 words (use density as proxy)
+    s, msg = grader_status("Keyword Density")
+    if s == "fail":
+        set_item("first_100_words", "warn", "Keyword density is very low — may not appear early in content.")
+    else:
+        set_item("first_100_words", "pass", msg)
 
-    # Image alt text — pass if no images are missing alt
-    img_check = checks_by_name.get("Image Alt Text", {})
-    set_item("image_alt", img_check.get("status") == "pass")
+    # Image alt text
+    s, msg = grader_status("Image Alt Text")
+    set_item("image_alt", s, msg)
 
     # Internal links
-    links_check = checks_by_name.get("Internal Links", {})
-    set_item("internal_links", links_check.get("status") == "pass")
+    s, msg = grader_status("Internal Links")
+    set_item("internal_links", s, msg)
 
     db.session.commit()
 
-    auto_count = sum(1 for k in ["title_tag", "title_length", "meta_desc", "url_slug",
-                                  "h1_keyword", "first_100_words", "image_alt", "internal_links"]
-                     if SeoChecklist.query.filter_by(keyword_id=keyword_id, item_key=k, completed=True).first())
+    passed = sum(1 for k in ["title_tag","title_length","meta_desc","url_slug",
+                              "h1_keyword","first_100_words","image_alt","internal_links"]
+                 if SeoChecklist.query.filter_by(keyword_id=keyword_id, item_key=k, status="pass").first())
 
-    flash(f"✅ Checklist refreshed from page grader — {auto_count}/8 auto-detected items passed. "
-          f"Score: {analysis['score']}/100. Review remaining items manually.", "success")
+    flash(f"✅ Refreshed from page grader — {passed}/8 auto-checks passed. "
+          f"Overall page score: {analysis['score']}/100.", "success")
     return redirect(url_for("keyword_history", keyword_id=keyword_id))
 
 
@@ -927,7 +946,7 @@ def get_or_create_checklist(keyword_id):
     created = False
     for item in SEO_CHECKLIST_ITEMS:
         if item["key"] not in existing:
-            new_item = SeoChecklist(keyword_id=keyword_id, item_key=item["key"])
+            new_item = SeoChecklist(keyword_id=keyword_id, item_key=item["key"], status="manual")
             db.session.add(new_item)
             created = True
     if created:

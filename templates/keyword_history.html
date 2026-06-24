@@ -178,12 +178,12 @@
   <div class="card-header d-flex align-items-center justify-content-between">
     <span><i class="bi bi-check2-square me-2"></i>SEO Ranking Checklist</span>
     <div class="d-flex align-items-center gap-2">
-      <span class="badge bg-light text-dark border" id="checklist-score">
-        {{ completed_count }}/{{ total_items }} done
+      <span class="badge bg-light text-dark border">
+        {{ completed_count }}/{{ total_items }} passing
       </span>
       {% if kw.latest_ranking() and kw.latest_ranking().url %}
       <form method="POST" action="{{ url_for('checklist_refresh', keyword_id=kw.id) }}" class="mb-0">
-        <button type="submit" class="btn btn-sm btn-outline-light" title="Auto-check from page grader">
+        <button type="submit" class="btn btn-sm btn-outline-light">
           <i class="bi bi-arrow-repeat me-1"></i>Refresh from Page
         </button>
       </form>
@@ -192,36 +192,54 @@
   </div>
   <div class="card-body">
     <p class="text-muted mb-3" style="font-size:.88rem">
-      Hit <strong>Refresh from Page</strong> to auto-check items from your live product page.
-      Items like blog posts, backlinks, and page speed must be checked manually.
+      Hit <strong>Refresh from Page</strong> to auto-analyze your live product page.
+      Items marked <span class="badge bg-secondary" style="font-size:.72rem">manual</span> can't be detected automatically.
     </p>
 
-    <!-- Progress bar -->
-    <div class="progress mb-4" style="height:10px;border-radius:6px">
-      <div class="progress-bar bg-success" id="checklist-bar"
-           style="width:{{ ((completed_count / total_items) * 100)|int }}%;border-radius:6px"
-           role="progressbar"></div>
+    <!-- Score bar -->
+    {% set pct = ((completed_count / total_items) * 100)|int %}
+    <div class="d-flex align-items-center gap-2 mb-4">
+      <div class="progress flex-grow-1" style="height:12px;border-radius:6px">
+        <div class="progress-bar {% if pct >= 80 %}bg-success{% elif pct >= 50 %}bg-warning{% else %}bg-danger{% endif %}"
+             style="width:{{ pct }}%;border-radius:6px"></div>
+      </div>
+      <span class="fw-bold {% if pct >= 80 %}text-success{% elif pct >= 50 %}text-warning{% else %}text-danger{% endif %}"
+            style="min-width:40px;font-size:.9rem">{{ pct }}%</span>
     </div>
 
     {% set priorities = [('high', '🔴 High Priority'), ('medium', '🟡 Medium Priority'), ('low', '🟢 Nice to Have')] %}
     {% for priority, label in priorities %}
-    <h6 class="fw-semibold mt-3 mb-2" style="color:var(--ba-navy);font-size:.85rem;text-transform:uppercase;letter-spacing:.04em">
+    <h6 class="fw-semibold mt-4 mb-2" style="color:var(--ba-navy);font-size:.8rem;text-transform:uppercase;letter-spacing:.05em">
       {{ label }}
     </h6>
     {% for item in checklist_items if item.priority == priority %}
     {% set db_item = checklist_map.get(item.key) %}
-    {% set is_done = db_item and db_item.completed %}
-    <div class="d-flex align-items-start gap-3 py-2 border-bottom checklist-row"
-         data-key="{{ item.key }}" data-keyword-id="{{ kw.id }}">
-      <div class="form-check mt-1 mb-0">
-        <input class="form-check-input checklist-checkbox" type="checkbox"
-               {% if is_done %}checked{% endif %}
-               id="chk_{{ item.key }}" style="cursor:pointer;width:1.1em;height:1.1em">
+    {% set st = db_item.status if db_item else 'manual' %}
+    <div class="d-flex align-items-start gap-3 py-2 border-bottom">
+      <!-- Status icon -->
+      <div style="min-width:22px;margin-top:2px">
+        {% if st == 'pass' %}
+          <span class="text-success fs-5">✅</span>
+        {% elif st == 'fail' %}
+          <span class="text-danger fs-5">❌</span>
+        {% elif st == 'warn' %}
+          <span style="font-size:1.1rem">⚠️</span>
+        {% else %}
+          <span class="text-muted fs-5">○</span>
+        {% endif %}
       </div>
-      <label for="chk_{{ item.key }}" class="mb-0" style="cursor:pointer;flex:1">
-        <span class="{% if is_done %}text-decoration-line-through text-muted{% endif %} fw-semibold"
-              style="font-size:.92rem">{{ item.label }}</span>
-      </label>
+      <!-- Label + detail -->
+      <div style="flex:1">
+        <div class="fw-semibold {% if st == 'pass' %}text-muted{% endif %}" style="font-size:.9rem">
+          {{ item.label }}
+          {% if item.key not in auto_detectable %}
+            <span class="badge bg-secondary ms-1" style="font-size:.65rem;vertical-align:middle">manual</span>
+          {% endif %}
+        </div>
+        {% if db_item and db_item.detail and st != 'manual' %}
+        <div class="text-muted" style="font-size:.8rem;margin-top:2px">{{ db_item.detail }}</div>
+        {% endif %}
+      </div>
     </div>
     {% endfor %}
     {% endfor %}
@@ -284,39 +302,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-document.querySelectorAll('.checklist-checkbox').forEach(function(checkbox) {
-  checkbox.addEventListener('change', function() {
-    const row = this.closest('.checklist-row');
-    const itemKey = row.dataset.key;
-    const keywordId = row.dataset.keywordId;
-    const label = row.querySelector('label span');
-
-    const formData = new FormData();
-    formData.append('item_key', itemKey);
-
-    fetch(`/keywords/${keywordId}/checklist-toggle`, {
-      method: 'POST',
-      body: formData
-    })
-    .then(r => r.json())
-    .then(data => {
-      if (data.completed) {
-        label.classList.add('text-decoration-line-through', 'text-muted');
-      } else {
-        label.classList.remove('text-decoration-line-through', 'text-muted');
-      }
-      // Update score badge and progress bar
-      const score = document.getElementById('checklist-score');
-      const bar = document.getElementById('checklist-bar');
-      if (score) score.textContent = `${data.done}/${data.total} done`;
-      if (bar) bar.style.width = `${Math.round((data.done / data.total) * 100)}%`;
-    })
-    .catch(err => console.error('Checklist error:', err));
-  });
-});
-</script>
-
 {% if rankings %}
 <script>
 const labels = {{ chart_labels|safe }};
