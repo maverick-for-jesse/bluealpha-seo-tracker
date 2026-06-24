@@ -90,6 +90,24 @@
 </div>
 {% endif %}
 
+<!-- Tag filter pills -->
+{% if all_tags %}
+<div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
+  <span class="text-muted small fw-semibold me-1">Filter by tag:</span>
+  <a href="{{ url_for('dashboard', sort=sort) }}"
+     class="badge rounded-pill text-decoration-none {% if not tag_filter %}bg-secondary{% else 'bg-light text-dark border'%}">
+    All
+  </a>
+  {% for tag in all_tags %}
+  <a href="{{ url_for('dashboard', sort=sort, tag=tag) }}"
+     class="badge rounded-pill text-decoration-none
+       {% if tag_filter == tag %}bg-primary{% else %}bg-light text-dark border{% endif %}">
+    {{ tag }}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
 <!-- Main table -->
 <div class="card">
   <div class="card-header d-flex align-items-center justify-content-between">
@@ -121,6 +139,13 @@
                  class="fw-semibold text-decoration-none" style="color:var(--ba-navy)">
                 {{ row.keyword }}
               </a>
+              {% if row.tags %}
+                {% for tag in row.tags %}
+                <a href="{{ url_for('dashboard', sort=sort, tag=tag) }}"
+                   class="badge bg-light text-secondary border text-decoration-none ms-1"
+                   style="font-size:.7rem">{{ tag }}</a>
+                {% endfor %}
+              {% endif %}
               {% if row.url %}
               <br><a href="{{ row.url }}" target="_blank" class="text-muted"
                      style="font-size:.75rem; word-break:break-all;">

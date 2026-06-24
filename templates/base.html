@@ -78,6 +78,14 @@
            href="{{ url_for('keyword_research') }}">
           <i class="bi bi-search"></i> Keyword Research
         </a>
+        <a class="nav-link {% if request.endpoint == 'competitors' %}active{% endif %}"
+           href="{{ url_for('competitors') }}">
+          <i class="bi bi-bar-chart"></i> Competitors
+        </a>
+        <a class="nav-link {% if request.endpoint == 'cannibalization' %}active{% endif %}"
+           href="{{ url_for('cannibalization') }}">
+          <i class="bi bi-exclamation-triangle"></i> Cannibalization
+        </a>
       </nav>
     </div>
     <!-- Main content -->

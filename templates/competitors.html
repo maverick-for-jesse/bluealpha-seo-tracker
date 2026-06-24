@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}Competitors — Blue Alpha SEO{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="mb-0 fw-bold" style="color:var(--ba-navy)">
+      <i class="bi bi-bar-chart me-2"></i>Competitor Rank Tracking
+    </h4>
+    <small class="text-muted">See how your rankings compare to competitors for each keyword</small>
+  </div>
+</div>
+
+<!-- Add Competitor Form -->
+<div class="card mb-4">
+  <div class="card-header">
+    <i class="bi bi-plus-circle me-2"></i>Add Competitor
+  </div>
+  <div class="card-body">
+    <form method="POST" action="{{ url_for('competitors') }}" class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label small fw-semibold">Domain</label>
+        <input type="text" name="domain" class="form-control" placeholder="koreessentials.com" required />
+        <div class="form-text">Just the domain, no https://</div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">Nickname</label>
+        <input type="text" name="nickname" class="form-control" placeholder="Kore" required />
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-navy w-100">
+          <i class="bi bi-plus me-1"></i>Add
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if competitors %}
+<!-- Competitors list with delete buttons -->
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-people me-2"></i>Tracked Competitors</span>
+    <span class="badge bg-secondary">{{ competitors|length }}</span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Nickname</th>
+            <th>Domain</th>
+            <th>Added</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for comp in competitors %}
+          <tr>
+            <td class="fw-semibold">{{ comp.nickname }}</td>
+            <td class="text-muted">{{ comp.domain }}</td>
+            <td class="text-muted small">{{ comp.added_at.strftime('%b %d, %Y') }}</td>
+            <td>
+              <form method="POST" action="{{ url_for('delete_competitor', competitor_id=comp.id) }}"
+                    onsubmit="return confirm('Delete {{ comp.nickname }}? This removes all their ranking data.')">
+                <button class="btn btn-sm btn-outline-danger">
+                  <i class="bi bi-trash"></i> Delete
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Head-to-head rankings table -->
+<div class="card">
+  <div class="card-header">
+    <i class="bi bi-trophy me-2"></i>Head-to-Head Rankings
+    <small class="text-white-50 ms-2">Latest check for each keyword</small>
+  </div>
+  <div class="card-body p-0">
+    {% if rows %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Keyword</th>
+            <th class="text-center">Your Rank</th>
+            {% for comp in competitors %}
+            <th class="text-center">{{ comp.nickname }}</th>
+            {% endfor %}
+            <th class="text-center">Who's Winning</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>
+              <a href="{{ url_for('keyword_history', keyword_id=row.keyword_id) }}"
+                 class="fw-semibold text-decoration-none" style="color:var(--ba-navy)">
+                {{ row.keyword }}
+              </a>
+            </td>
+            <td class="text-center">
+              {% if row.our_pos %}
+                {% if row.our_pos <= 3 %}
+                  <span class="badge-rank rank-top3">{{ row.our_pos }}</span>
+                {% elif row.our_pos <= 10 %}
+                  <span class="badge-rank rank-top10">{{ row.our_pos }}</span>
+                {% elif row.our_pos <= 30 %}
+                  <span class="badge-rank rank-top30">{{ row.our_pos }}</span>
+                {% else %}
+                  <span class="badge-rank rank-other">{{ row.our_pos }}</span>
+                {% endif %}
+              {% else %}
+                <span class="badge-rank rank-none">—</span>
+              {% endif %}
+            </td>
+            {% for comp in competitors %}
+            {% set comp_pos = row.comp_positions.get(comp.id) %}
+            <td class="text-center">
+              {% if comp_pos %}
+                {% if comp_pos <= 3 %}
+                  <span class="badge-rank rank-top3">{{ comp_pos }}</span>
+                {% elif comp_pos <= 10 %}
+                  <span class="badge-rank rank-top10">{{ comp_pos }}</span>
+                {% elif comp_pos <= 30 %}
+                  <span class="badge-rank rank-top30">{{ comp_pos }}</span>
+                {% else %}
+                  <span class="badge-rank rank-other">{{ comp_pos }}</span>
+                {% endif %}
+              {% else %}
+                <span class="badge-rank rank-none">—</span>
+              {% endif %}
+            </td>
+            {% endfor %}
+            <td class="text-center">
+              {% set our = row.our_pos %}
+              {% set any_comp_lower = namespace(found=false, name='') %}
+              {% for comp in competitors %}
+                {% set cp = row.comp_positions.get(comp.id) %}
+                {% if cp and our and cp < our %}
+                  {% set any_comp_lower.found = true %}
+                  {% set any_comp_lower.name = comp.nickname %}
+                {% endif %}
+              {% endfor %}
+              {% if not our %}
+                <span class="badge bg-secondary">—</span>
+              {% elif any_comp_lower.found %}
+                <span class="badge bg-danger">Them</span>
+              {% else %}
+                <span class="badge bg-success">You ✓</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-search" style="font-size:3rem"></i>
+      <p class="mt-2">No keywords tracked yet. <a href="{{ url_for('add_keyword') }}">Add some keywords</a> first.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-bar-chart" style="font-size:3rem"></i>
+    <p class="mt-2">No competitors added yet. Add one above to start tracking.</p>
+    <small>Competitor rankings are fetched automatically with each "Check Now" run.</small>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

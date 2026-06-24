@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Cannibalization Detector — Blue Alpha SEO{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <h4 class="fw-bold mb-1" style="color:var(--ba-navy)">
+    <i class="bi bi-exclamation-triangle me-2"></i>Cannibalization Detector
+  </h4>
+  <p class="text-muted mb-0">
+    Keyword cannibalization happens when multiple keywords point to the same URL — 
+    Google may struggle to pick a winner, splitting your ranking power. Review and resolve conflicts below.
+  </p>
+</div>
+
+{% if conflicts %}
+<div class="alert alert-warning d-flex align-items-center gap-2 mb-4">
+  <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+  <span>
+    <strong>{{ conflicts|length }} cannibalization conflict{{ 's' if conflicts|length != 1 else '' }} found.</strong>
+    Multiple keywords are ranking for the same URL.
+  </span>
+</div>
+
+{% for url, kws in conflicts.items() %}
+<div class="card mb-3 border-warning">
+  <div class="card-header d-flex align-items-center gap-2" style="background:#fff8e1">
+    <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+    <span class="fw-semibold text-dark">{{ kws|length }} keywords competing on the same page</span>
+  </div>
+  <div class="card-body">
+    <p class="mb-2 text-muted small">
+      <i class="bi bi-link-45deg"></i>
+      <a href="{{ url }}" target="_blank" class="text-break">{{ url }}</a>
+    </p>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Keyword</th>
+            <th class="text-center">Current Position</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for kw in kws %}
+          <tr>
+            <td>
+              <a href="{{ url_for('keyword_history', keyword_id=kw.keyword_id) }}"
+                 class="fw-semibold text-decoration-none" style="color:var(--ba-navy)">
+                {{ kw.keyword }}
+              </a>
+            </td>
+            <td class="text-center">
+              {% if kw.position %}
+                {% if kw.position <= 3 %}
+                  <span class="badge-rank rank-top3">{{ kw.position }}</span>
+                {% elif kw.position <= 10 %}
+                  <span class="badge-rank rank-top10">{{ kw.position }}</span>
+                {% elif kw.position <= 30 %}
+                  <span class="badge-rank rank-top30">{{ kw.position }}</span>
+                {% else %}
+                  <span class="badge-rank rank-other">{{ kw.position }}</span>
+                {% endif %}
+              {% else %}
+                <span class="badge-rank rank-none">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="mt-2 p-2 rounded" style="background:#fff3cd;font-size:.85rem">
+      <i class="bi bi-lightbulb-fill text-warning me-1"></i>
+      <strong>Tip:</strong> Consider whether these keywords should point to different pages. 
+      If not, consolidate content and use canonical tags or redirects.
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% else %}
+<div class="alert alert-success d-flex align-items-center gap-2 mb-4">
+  <i class="bi bi-check-circle-fill fs-5"></i>
+  <span>✅ No cannibalization issues found. Each keyword ranks for a unique URL.</span>
+</div>
+{% endif %}
+
+<!-- All Rankings Table -->
+<div class="card mt-4">
+  <div class="card-header">
+    <i class="bi bi-table me-2"></i>All Current Rankings
+    <small class="text-white-50 ms-2">Audit every keyword and its ranking URL</small>
+  </div>
+  <div class="card-body p-0">
+    {% if all_rows %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Keyword</th>
+            <th class="text-center">Position</th>
+            <th>Ranking URL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in all_rows %}
+          <tr {% if row.url and conflicts and row.url in conflicts %}class="table-warning"{% endif %}>
+            <td>
+              <a href="{{ url_for('keyword_history', keyword_id=row.keyword_id) }}"
+                 class="fw-semibold text-decoration-none" style="color:var(--ba-navy)">
+                {{ row.keyword }}
+              </a>
+              {% if row.url and conflicts and row.url in conflicts %}
+                <span class="badge bg-warning text-dark ms-1" style="font-size:.7rem">conflict</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if row.position %}
+                {% if row.position <= 3 %}
+                  <span class="badge-rank rank-top3">{{ row.position }}</span>
+                {% elif row.position <= 10 %}
+                  <span class="badge-rank rank-top10">{{ row.position }}</span>
+                {% elif row.position <= 30 %}
+                  <span class="badge-rank rank-top30">{{ row.position }}</span>
+                {% else %}
+                  <span class="badge-rank rank-other">{{ row.position }}</span>
+                {% endif %}
+              {% else %}
+                <span class="badge-rank rank-none">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if row.url %}
+                <a href="{{ row.url }}" target="_blank" class="text-muted small text-break">
+                  <i class="bi bi-link-45deg"></i>{{ row.url|truncate(80) }}
+                </a>
+              {% else %}
+                <span class="text-muted small">Not ranked</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-search" style="font-size:3rem"></i>
+      <p class="mt-2">No ranking data yet. Run a check from the dashboard first.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

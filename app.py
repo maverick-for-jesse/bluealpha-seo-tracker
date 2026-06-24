@@ -95,6 +95,7 @@ class Keyword(db.Model):
     active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     monthly_volume = db.Column(db.Integer, nullable=True)  # stored from DataForSEO, no daily calls
+    tags = db.Column(db.String(500), nullable=True)  # comma-separated: "belts,tactical"
     rankings = db.relationship("Ranking", backref="keyword_ref", lazy="dynamic",
                                cascade="all, delete-orphan")
 
@@ -117,6 +118,29 @@ class Ranking(db.Model):
     checked_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     position = db.Column(db.Integer, nullable=True)  # null = not in top 100
     url = db.Column(db.String(2000), nullable=True)
+
+
+class Competitor(db.Model):
+    __tablename__ = "competitors"
+    id = db.Column(db.Integer, primary_key=True)
+    domain = db.Column(db.String(500), nullable=False, unique=True)
+    nickname = db.Column(db.String(200), nullable=False)
+    added_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    active = db.Column(db.Boolean, default=True, nullable=False)
+    rankings = db.relationship("CompetitorRanking", backref="competitor_ref", lazy="dynamic",
+                               cascade="all, delete-orphan")
+
+
+class CompetitorRanking(db.Model):
+    __tablename__ = "competitor_rankings"
+    id = db.Column(db.Integer, primary_key=True)
+    keyword_id = db.Column(db.Integer, db.ForeignKey("keywords.id", ondelete="CASCADE"), nullable=False)
+    competitor_id = db.Column(db.Integer, db.ForeignKey("competitors.id", ondelete="CASCADE"), nullable=False)
+    checked_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    position = db.Column(db.Integer, nullable=True)
+    url = db.Column(db.String(2000), nullable=True)
+    keyword_ref = db.relationship("Keyword", backref=db.backref("competitor_rankings", lazy="dynamic",
+                                  cascade="all, delete-orphan"))
 
 
 class KeywordQuestion(db.Model):
@@ -174,6 +198,33 @@ def check_rank_for_keyword(keyword_text: str):
     for i, result in enumerate(organic[:100], start=1):
         link = result.get("link", "")
         if TARGET_DOMAIN in link:
+            return i, link
+
+    return None, None
+
+
+def check_rank_for_domain(keyword_text: str, domain: str):
+    """Call SerpAPI and return (position, url) for a given domain, or (None, None)."""
+    api_key = get_serpapi_key()
+    if not api_key:
+        raise ValueError("SERPAPI_KEY not configured")
+
+    params = {
+        "engine": "google",
+        "q": keyword_text,
+        "api_key": api_key,
+        "gl": "us",
+        "hl": "en",
+        "num": 100,
+    }
+    response = requests.get("https://serpapi.com/search", params=params, timeout=30)
+    response.raise_for_status()
+    data = response.json()
+
+    organic = data.get("organic_results", [])
+    for i, result in enumerate(organic[:100], start=1):
+        link = result.get("link", "")
+        if domain in link:
             return i, link
 
     return None, None
@@ -237,16 +288,63 @@ def store_ranking(keyword_id: int, position, url):
 
 def check_all_active_keywords():
     keywords = Keyword.query.filter_by(active=True).all()
+    competitors = Competitor.query.filter_by(active=True).all()
     results = []
+    alert_lines = []
+
     for kw in keywords:
         try:
+            # Get previous position before storing new one
+            prev_ranking = kw.latest_ranking()
+            prev_pos = prev_ranking.position if prev_ranking else None
+
             position, url = check_rank_for_keyword(kw.keyword)
             store_ranking(kw.id, position, url)
             results.append({"keyword": kw.keyword, "position": position, "url": url})
             logger.info(f"Checked '{kw.keyword}': position={position}")
+
+            # --- Ranking Alerts ---
+            kw_name = kw.keyword
+            if prev_pos is not None and position is not None:
+                drop = position - prev_pos
+                if drop >= 5:
+                    alert_lines.append(f"📉 '{kw_name}' dropped {drop} spots: #{prev_pos} → #{position}")
+            if position == 1:
+                alert_lines.append(f"🏆 '{kw_name}' hit #1!")
+            elif position is not None and position <= 10 and (prev_pos is None or prev_pos > 10):
+                alert_lines.append(f"🎉 '{kw_name}' entered Top 10: now #{position}")
+            elif (prev_pos is not None and prev_pos <= 10) and (position is None or position > 10):
+                pos_str = f"#{position}" if position else "unranked"
+                alert_lines.append(f"⚠️ '{kw_name}' left Top 10: now {pos_str}")
+
         except Exception as e:
             logger.error(f"Error checking '{kw.keyword}': {e}")
             results.append({"keyword": kw.keyword, "error": str(e)})
+
+        # --- Competitor Rankings ---
+        for comp in competitors:
+            try:
+                comp_position, comp_url = check_rank_for_domain(kw.keyword, comp.domain)
+                cr = CompetitorRanking(
+                    keyword_id=kw.id,
+                    competitor_id=comp.id,
+                    checked_at=datetime.utcnow(),
+                    position=comp_position,
+                    url=comp_url,
+                )
+                db.session.add(cr)
+                db.session.commit()
+            except Exception as e:
+                logger.error(f"Error checking competitor '{comp.domain}' for '{kw.keyword}': {e}")
+
+    # Send WhatsApp alerts if any
+    if alert_lines:
+        try:
+            body = "🚨 SEO Alert — Blue Alpha\n\n" + "\n".join(alert_lines)
+            send_whatsapp_message(body)
+        except Exception as e:
+            logger.error(f"Alert WhatsApp send failed: {e}")
+
     return results
 
 
@@ -367,10 +465,26 @@ def logout():
 @login_required
 def dashboard():
     sort = request.args.get("sort", "alphabetical")
+    tag_filter = request.args.get("tag", "").strip().lower()
     keywords = Keyword.query.filter_by(active=True).all()
+
+    # Collect all unique tags
+    all_tags = set()
+    for kw in keywords:
+        if kw.tags:
+            for t in kw.tags.split(","):
+                t = t.strip()
+                if t:
+                    all_tags.add(t)
+    all_tags = sorted(all_tags)
 
     rows = []
     for kw in keywords:
+        # Tag filter
+        kw_tags = [t.strip() for t in kw.tags.split(",")] if kw.tags else []
+        if tag_filter and tag_filter not in kw_tags:
+            continue
+
         current = kw.latest_ranking()
         old = kw.ranking_n_days_ago(7)
         cur_pos = current.position if current else None
@@ -386,6 +500,7 @@ def dashboard():
         rows.append({
             "id": kw.id,
             "keyword": kw.keyword,
+            "tags": kw_tags,
             "current_pos": cur_pos,
             "old_pos": old_pos,
             "change": change,
@@ -403,7 +518,8 @@ def dashboard():
         rows.sort(key=lambda r: r["keyword"].lower())
 
     all_keywords = Keyword.query.order_by(Keyword.keyword).all()
-    return render_template("dashboard.html", rows=rows, sort=sort, all_keywords=all_keywords)
+    return render_template("dashboard.html", rows=rows, sort=sort, all_keywords=all_keywords,
+                           all_tags=all_tags, tag_filter=tag_filter)
 
 
 # ---------------------------------------------------------------------------
@@ -521,6 +637,114 @@ def cron_weekly_summary():
 def api_check_now():
     results = check_all_active_keywords()
     return jsonify({"status": "ok", "results": results})
+
+
+# ---------------------------------------------------------------------------
+# Routes — Keyword Tags
+# ---------------------------------------------------------------------------
+@app.route("/keywords/<int:keyword_id>/tags", methods=["POST"])
+@login_required
+def update_keyword_tags(keyword_id):
+    kw = Keyword.query.get_or_404(keyword_id)
+    raw = request.form.get("tags", "").strip()
+    # Normalize: strip spaces around commas, lowercase
+    tags_list = [t.strip().lower() for t in raw.split(",") if t.strip()]
+    kw.tags = ",".join(tags_list) if tags_list else None
+    db.session.commit()
+    flash(f'Tags updated for "{kw.keyword}".', "success")
+    return redirect(url_for("keyword_history", keyword_id=keyword_id))
+
+
+# ---------------------------------------------------------------------------
+# Routes — Competitors
+# ---------------------------------------------------------------------------
+@app.route("/competitors", methods=["GET", "POST"])
+@login_required
+def competitors():
+    if request.method == "POST":
+        domain = request.form.get("domain", "").strip().lower()
+        nickname = request.form.get("nickname", "").strip()
+        if not domain or not nickname:
+            flash("Both domain and nickname are required.", "warning")
+        elif Competitor.query.filter_by(domain=domain).first():
+            flash(f'Competitor "{domain}" already exists.', "warning")
+        else:
+            comp = Competitor(domain=domain, nickname=nickname)
+            db.session.add(comp)
+            db.session.commit()
+            flash(f'Competitor "{nickname}" ({domain}) added.', "success")
+        return redirect(url_for("competitors"))
+
+    all_competitors = Competitor.query.order_by(Competitor.added_at.desc()).all()
+    keywords = Keyword.query.filter_by(active=True).order_by(Keyword.keyword).all()
+
+    # Build table: for each keyword, get latest our rank + latest competitor ranks
+    rows = []
+    for kw in keywords:
+        latest_ours = kw.latest_ranking()
+        our_pos = latest_ours.position if latest_ours else None
+        comp_data = {}
+        for comp in all_competitors:
+            latest_cr = (CompetitorRanking.query
+                         .filter_by(keyword_id=kw.id, competitor_id=comp.id)
+                         .order_by(CompetitorRanking.checked_at.desc())
+                         .first())
+            comp_data[comp.id] = latest_cr.position if latest_cr else None
+        rows.append({
+            "keyword_id": kw.id,
+            "keyword": kw.keyword,
+            "our_pos": our_pos,
+            "comp_positions": comp_data,
+        })
+
+    return render_template("competitors.html",
+                           competitors=all_competitors,
+                           rows=rows)
+
+
+@app.route("/competitors/<int:competitor_id>/delete", methods=["POST"])
+@login_required
+def delete_competitor(competitor_id):
+    comp = Competitor.query.get_or_404(competitor_id)
+    name = comp.nickname
+    db.session.delete(comp)
+    db.session.commit()
+    flash(f'Competitor "{name}" deleted.', "success")
+    return redirect(url_for("competitors"))
+
+
+# ---------------------------------------------------------------------------
+# Routes — Cannibalization Detector
+# ---------------------------------------------------------------------------
+@app.route("/cannibalization")
+@login_required
+def cannibalization():
+    keywords = Keyword.query.filter_by(active=True).all()
+
+    all_rows = []
+    url_groups = {}  # url -> list of {keyword, position}
+
+    for kw in keywords:
+        latest = kw.latest_ranking()
+        pos = latest.position if latest else None
+        url = latest.url if latest else None
+        all_rows.append({
+            "keyword": kw.keyword,
+            "keyword_id": kw.id,
+            "position": pos,
+            "url": url,
+        })
+        if url:
+            if url not in url_groups:
+                url_groups[url] = []
+            url_groups[url].append({"keyword": kw.keyword, "keyword_id": kw.id, "position": pos})
+
+    # Find cannibalization conflicts: same URL, 2+ keywords
+    conflicts = {url: kws for url, kws in url_groups.items() if len(kws) >= 2}
+
+    return render_template("cannibalization.html",
+                           conflicts=conflicts,
+                           all_rows=all_rows)
 
 
 # ---------------------------------------------------------------------------

@@ -139,6 +139,40 @@
 </div>
 {% endif %}
 
+<!-- Tag Editor -->
+<div class="card mt-4">
+  <div class="card-header">
+    <i class="bi bi-tags me-2"></i>Tags
+  </div>
+  <div class="card-body">
+    <form method="POST" action="{{ url_for('update_keyword_tags', keyword_id=kw.id) }}"
+          class="row g-2 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label small fw-semibold text-muted">
+          Comma-separated tags (e.g. <code>belts,tactical,top10-target</code>)
+        </label>
+        <input type="text" name="tags" class="form-control"
+               value="{{ kw.tags or '' }}"
+               placeholder="belts, tactical, accessories" />
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-navy">
+          <i class="bi bi-save me-1"></i>Save Tags
+        </button>
+      </div>
+    </form>
+    {% if kw.tags %}
+    <div class="mt-2">
+      {% for tag in kw.tags.split(',') %}
+      {% if tag.strip() %}
+      <span class="badge bg-light text-secondary border me-1">{{ tag.strip() }}</span>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
 <!-- Content Ideas / People Also Ask -->
 <div class="card mt-4">
   <div class="card-header d-flex align-items-center justify-content-between">
