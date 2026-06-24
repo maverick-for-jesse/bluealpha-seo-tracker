@@ -173,6 +173,52 @@
   </div>
 </div>
 
+<!-- SEO Ranking Checklist -->
+<div class="card mt-4">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-check2-square me-2"></i>SEO Ranking Checklist</span>
+    <span class="badge bg-light text-dark border" id="checklist-score">
+      {{ completed_count }}/{{ total_items }} done
+    </span>
+  </div>
+  <div class="card-body">
+    <p class="text-muted mb-3" style="font-size:.88rem">
+      Complete these steps to improve your ranking for <strong>"{{ kw.keyword }}"</strong>.
+      Changes are saved instantly.
+    </p>
+
+    <!-- Progress bar -->
+    <div class="progress mb-4" style="height:10px;border-radius:6px">
+      <div class="progress-bar bg-success" id="checklist-bar"
+           style="width:{{ ((completed_count / total_items) * 100)|int }}%;border-radius:6px"
+           role="progressbar"></div>
+    </div>
+
+    {% set priorities = [('high', '🔴 High Priority'), ('medium', '🟡 Medium Priority'), ('low', '🟢 Nice to Have')] %}
+    {% for priority, label in priorities %}
+    <h6 class="fw-semibold mt-3 mb-2" style="color:var(--ba-navy);font-size:.85rem;text-transform:uppercase;letter-spacing:.04em">
+      {{ label }}
+    </h6>
+    {% for item in checklist_items if item.priority == priority %}
+    {% set db_item = checklist_map.get(item.key) %}
+    {% set is_done = db_item and db_item.completed %}
+    <div class="d-flex align-items-start gap-3 py-2 border-bottom checklist-row"
+         data-key="{{ item.key }}" data-keyword-id="{{ kw.id }}">
+      <div class="form-check mt-1 mb-0">
+        <input class="form-check-input checklist-checkbox" type="checkbox"
+               {% if is_done %}checked{% endif %}
+               id="chk_{{ item.key }}" style="cursor:pointer;width:1.1em;height:1.1em">
+      </div>
+      <label for="chk_{{ item.key }}" class="mb-0" style="cursor:pointer;flex:1">
+        <span class="{% if is_done %}text-decoration-line-through text-muted{% endif %} fw-semibold"
+              style="font-size:.92rem">{{ item.label }}</span>
+      </label>
+    </div>
+    {% endfor %}
+    {% endfor %}
+  </div>
+</div>
+
 <!-- Content Ideas / People Also Ask -->
 <div class="card mt-4">
   <div class="card-header d-flex align-items-center justify-content-between">
@@ -229,6 +275,39 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+document.querySelectorAll('.checklist-checkbox').forEach(function(checkbox) {
+  checkbox.addEventListener('change', function() {
+    const row = this.closest('.checklist-row');
+    const itemKey = row.dataset.key;
+    const keywordId = row.dataset.keywordId;
+    const label = row.querySelector('label span');
+
+    const formData = new FormData();
+    formData.append('item_key', itemKey);
+
+    fetch(`/keywords/${keywordId}/checklist-toggle`, {
+      method: 'POST',
+      body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.completed) {
+        label.classList.add('text-decoration-line-through', 'text-muted');
+      } else {
+        label.classList.remove('text-decoration-line-through', 'text-muted');
+      }
+      // Update score badge and progress bar
+      const score = document.getElementById('checklist-score');
+      const bar = document.getElementById('checklist-bar');
+      if (score) score.textContent = `${data.done}/${data.total} done`;
+      if (bar) bar.style.width = `${Math.round((data.done / data.total) * 100)}%`;
+    })
+    .catch(err => console.error('Checklist error:', err));
+  });
+});
+</script>
+
 {% if rankings %}
 <script>
 const labels = {{ chart_labels|safe }};

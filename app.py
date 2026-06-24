@@ -169,6 +169,25 @@ class ContentIdea(db.Model):
     keyword_ref = db.relationship("Keyword", backref=db.backref("content_ideas", lazy="dynamic"))
 
 
+class SearchHistory(db.Model):
+    __tablename__ = "search_history"
+    id = db.Column(db.Integer, primary_key=True)
+    query = db.Column(db.String(500), nullable=False)
+    location_code = db.Column(db.String(10), default="2840")
+    searched_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class SeoChecklist(db.Model):
+    __tablename__ = "seo_checklist"
+    id = db.Column(db.Integer, primary_key=True)
+    keyword_id = db.Column(db.Integer, db.ForeignKey("keywords.id"), nullable=False)
+    item_key = db.Column(db.String(100), nullable=False)   # e.g. "title_tag"
+    completed = db.Column(db.Boolean, default=False, nullable=False)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    keyword_ref = db.relationship("Keyword", backref=db.backref("checklist_items", lazy="dynamic",
+                                  cascade="all, delete-orphan"))
+
+
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
@@ -605,6 +624,9 @@ def keyword_history(keyword_id):
         chart_data.append(r.position if r.position else "null")
 
     stored_questions = kw.questions.order_by(KeywordQuestion.fetched_at.desc()).all()
+    checklist_items = get_or_create_checklist(keyword_id)
+    checklist_map = {item.item_key: item for item in checklist_items}
+    completed_count = sum(1 for i in checklist_items if i.completed)
 
     return render_template(
         "keyword_history.html",
@@ -613,6 +635,10 @@ def keyword_history(keyword_id):
         chart_labels=json.dumps(chart_labels),
         chart_data=json.dumps([p if p != "null" else None for p in chart_data]),
         questions=stored_questions,
+        checklist_items=SEO_CHECKLIST_ITEMS,
+        checklist_map=checklist_map,
+        completed_count=completed_count,
+        total_items=len(SEO_CHECKLIST_ITEMS),
     )
 
 
@@ -767,6 +793,25 @@ def cannibalization():
 
 @app.route("/keywords/<int:keyword_id>/fetch-questions", methods=["POST"])
 @login_required
+@app.route("/keywords/<int:keyword_id>/checklist-toggle", methods=["POST"])
+@login_required
+def checklist_toggle(keyword_id):
+    item_key = request.form.get("item_key")
+    if not item_key:
+        return jsonify({"error": "missing item_key"}), 400
+    item = SeoChecklist.query.filter_by(keyword_id=keyword_id, item_key=item_key).first()
+    if not item:
+        return jsonify({"error": "not found"}), 404
+    item.completed = not item.completed
+    item.completed_at = datetime.utcnow() if item.completed else None
+    db.session.commit()
+    total = SeoChecklist.query.filter_by(keyword_id=keyword_id).count()
+    done = SeoChecklist.query.filter_by(keyword_id=keyword_id, completed=True).count()
+    return jsonify({"completed": item.completed, "done": done, "total": total})
+
+
+@app.route("/keywords/<int:keyword_id>/fetch-questions", methods=["POST"])
+@login_required
 def fetch_keyword_questions(keyword_id):
     kw = Keyword.query.get_or_404(keyword_id)
     try:
@@ -781,6 +826,60 @@ def fetch_keyword_questions(keyword_id):
 # ---------------------------------------------------------------------------
 # DataForSEO — Keyword Research
 # ---------------------------------------------------------------------------
+
+SEO_CHECKLIST_ITEMS = [
+    {"key": "title_tag",        "label": "Title tag includes the keyword",             "priority": "high"},
+    {"key": "title_length",     "label": "Title tag is 50–60 characters",              "priority": "high"},
+    {"key": "meta_desc",        "label": "Meta description written & includes keyword","priority": "high"},
+    {"key": "url_slug",         "label": "URL slug contains the keyword (e.g. /battle-belt)", "priority": "high"},
+    {"key": "h1_keyword",       "label": "H1 heading includes the keyword",            "priority": "high"},
+    {"key": "first_100_words",  "label": "Keyword appears in first 100 words of page", "priority": "high"},
+    {"key": "image_alt",        "label": "Product images have keyword-rich alt text",  "priority": "medium"},
+    {"key": "internal_links",   "label": "Other pages link to this product page",      "priority": "medium"},
+    {"key": "blog_post",        "label": "Supporting blog post written & links here",  "priority": "medium"},
+    {"key": "reviews",          "label": "Product has customer reviews (adds content)","priority": "medium"},
+    {"key": "page_speed",       "label": "Page loads in under 3 seconds on mobile",   "priority": "medium"},
+    {"key": "schema_markup",    "label": "Product schema markup added (price, availability)", "priority": "low"},
+    {"key": "backlinks",        "label": "At least one external site links to this page", "priority": "low"},
+    {"key": "paa_answered",     "label": "People Also Ask questions answered on page or blog", "priority": "low"},
+]
+
+
+def get_or_create_checklist(keyword_id):
+    """Ensure all checklist items exist for a keyword, return them."""
+    existing = {item.item_key: item for item in
+                SeoChecklist.query.filter_by(keyword_id=keyword_id).all()}
+    created = False
+    for item in SEO_CHECKLIST_ITEMS:
+        if item["key"] not in existing:
+            new_item = SeoChecklist(keyword_id=keyword_id, item_key=item["key"])
+            db.session.add(new_item)
+            created = True
+    if created:
+        db.session.commit()
+    return SeoChecklist.query.filter_by(keyword_id=keyword_id).all()
+
+
+def save_search_history(query, location_code="2840"):
+    """Save a keyword research search, keeping only the last 10 unique queries."""
+    # Remove duplicate if already in history
+    existing = SearchHistory.query.filter(
+        func.lower(SearchHistory.query) == query.lower()
+    ).first()
+    if existing:
+        db.session.delete(existing)
+        db.session.commit()
+    # Add new entry
+    entry = SearchHistory(query=query, location_code=str(location_code))
+    db.session.add(entry)
+    db.session.commit()
+    # Keep only 10 most recent
+    all_entries = SearchHistory.query.order_by(SearchHistory.searched_at.desc()).all()
+    if len(all_entries) > 10:
+        for old in all_entries[10:]:
+            db.session.delete(old)
+        db.session.commit()
+
 
 def dataforseo_keyword_data(keywords: list, location_code: int = 2840, language_code: str = "en"):
     """
@@ -938,9 +1037,17 @@ def keyword_research():
                 logger.warning(f"PAA fetch failed: {e}")
                 questions = []
 
+            # Save to search history
+            try:
+                save_search_history(query, location_code)
+            except Exception as e:
+                logger.warning(f"History save failed: {e}")
+
         except Exception as e:
             logger.error(f"DataForSEO error: {e}")
             error = f"Keyword research failed: {e}"
+
+    recent_searches = SearchHistory.query.order_by(SearchHistory.searched_at.desc()).limit(10).all()
 
     return render_template(
         "keyword_research.html",
@@ -950,6 +1057,7 @@ def keyword_research():
         questions=questions,
         error=error,
         location_code=location_code,
+        recent_searches=recent_searches,
     )
 
 

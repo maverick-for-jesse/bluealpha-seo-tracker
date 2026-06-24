@@ -30,6 +30,22 @@
   </div>
 </div>
 
+<!-- Recent Searches -->
+{% if recent_searches %}
+<div class="mb-3 d-flex align-items-center flex-wrap gap-2">
+  <span class="text-muted small fw-semibold">Recent:</span>
+  {% for s in recent_searches %}
+  <form method="POST" style="display:inline">
+    <input type="hidden" name="keyword" value="{{ s.query }}">
+    <input type="hidden" name="location_code" value="{{ s.location_code }}">
+    <button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:.82rem">
+      <i class="bi bi-clock-history me-1" style="font-size:.7rem"></i>{{ s.query }}
+    </button>
+  </form>
+  {% endfor %}
+</div>
+{% endif %}
+
 <!-- Search form -->
 <div class="card mb-4">
   <div class="card-header"><i class="bi bi-search me-2"></i>Search Keywords</div>
