@@ -137,6 +137,7 @@
           <th style="min-width:120px">SEO Difficulty</th>
           <th style="min-width:110px">Ad Competition</th>
           <th class="text-center">3-Mo Trend</th>
+          <th style="min-width:130px">Traffic Potential</th>
           <th class="text-center">Action</th>
         </tr>
       </thead>
@@ -213,6 +214,17 @@
               <span class="text-muted">—</span>
             {% endif %}
           </td>
+          <td>
+            {% if r.search_volume %}
+              {% set vol = r.search_volume %}
+              <small class="text-muted d-block" style="font-size:.75rem">If ranked:</small>
+              <span class="text-success fw-semibold">#1: ~{{ "{:,}".format((vol * 0.314) | int) }}/mo</span><br>
+              <span class="text-warning" style="font-size:.85rem">#3: ~{{ "{:,}".format((vol * 0.114) | int) }}/mo</span><br>
+              <span class="text-muted" style="font-size:.82rem">#5: ~{{ "{:,}".format((vol * 0.061) | int) }}/mo</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
           <td class="text-center">
             {% if r.already_tracked %}
               <span class="text-muted" style="font-size:.8rem">✓ tracking</span>
@@ -221,6 +233,7 @@
                 <input type="hidden" name="keyword" value="{{ r.keyword }}">
                 <input type="hidden" name="return_query" value="{{ query }}">
                 <input type="hidden" name="return_location" value="{{ location_code }}">
+                <input type="hidden" name="volume" value="{{ r.search_volume or '' }}">
                 <button type="submit" class="btn btn-sm btn-outline-primary" title="Add to rank tracker">
                   <i class="bi bi-plus-circle me-1"></i>Track
                 </button>

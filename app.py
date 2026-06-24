@@ -75,12 +75,26 @@ DATAFORSEO_PASSWORD = os.environ.get("DATAFORSEO_PASSWORD", "")
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
+CTR_BY_POSITION = {
+    1: 0.314, 2: 0.175, 3: 0.114, 4: 0.079, 5: 0.061,
+    6: 0.046, 7: 0.037, 8: 0.030, 9: 0.024, 10: 0.022,
+}
+
+def estimate_traffic(position, monthly_volume):
+    """Estimate monthly organic clicks based on rank position and search volume."""
+    if position is None or monthly_volume is None:
+        return None
+    ctr = CTR_BY_POSITION.get(position, 0.01 if position <= 20 else 0.005)
+    return round(monthly_volume * ctr)
+
+
 class Keyword(db.Model):
     __tablename__ = "keywords"
     id = db.Column(db.Integer, primary_key=True)
     keyword = db.Column(db.String(500), nullable=False, unique=True)
     active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    monthly_volume = db.Column(db.Integer, nullable=True)  # stored from DataForSEO, no daily calls
     rankings = db.relationship("Ranking", backref="keyword_ref", lazy="dynamic",
                                cascade="all, delete-orphan")
 
@@ -321,6 +335,8 @@ def dashboard():
             "change": change,
             "url": cur_url,
             "checked_at": current.checked_at if current else None,
+            "monthly_volume": kw.monthly_volume,
+            "estimated_traffic": estimate_traffic(cur_pos, kw.monthly_volume),
         })
 
     if sort == "best_rank":
@@ -620,13 +636,15 @@ def keyword_research_add_tracked():
     kw_text = request.form.get("keyword", "").strip()
     return_query = request.form.get("return_query", "")
     return_location = request.form.get("return_location", "2840")
+    stored_volume = request.form.get("volume")
 
     if kw_text:
         existing = Keyword.query.filter(func.lower(Keyword.keyword) == kw_text.lower()).first()
         if existing:
             flash(f'"{kw_text}" is already being tracked.', "info")
         else:
-            kw = Keyword(keyword=kw_text)
+            volume = int(stored_volume) if stored_volume and stored_volume.isdigit() else None
+            kw = Keyword(keyword=kw_text, monthly_volume=volume)
             db.session.add(kw)
             db.session.commit()
             # Immediately check rank

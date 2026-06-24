@@ -67,6 +67,29 @@
   </div>
 </div>
 
+<!-- Estimated traffic summary -->
+{% set traffic_rows = rows|selectattr('estimated_traffic')|list %}
+{% if traffic_rows %}
+{% set total_traffic = traffic_rows|map(attribute='estimated_traffic')|sum %}
+<div class="alert mb-4" style="background:#e8f0fe;border:1px solid #c7d9f8;border-radius:10px">
+  <div class="d-flex align-items-center gap-3">
+    <span style="font-size:1.8rem">📈</span>
+    <div>
+      <div class="fw-bold" style="color:var(--ba-navy);font-size:1.05rem">
+        Est. ~{{ "{:,}".format(total_traffic) }} organic visits/month
+      </div>
+      <div class="text-muted small">
+        Based on current rank positions × average Google CTR rates.
+        {{ traffic_rows|length }} of {{ rows|length }} keywords have volume data.
+        {% if rows|length > traffic_rows|length %}
+          <a href="{{ url_for('keyword_research') }}" class="ms-1">Look up missing keywords →</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <!-- Main table -->
 <div class="card">
   <div class="card-header d-flex align-items-center justify-content-between">
@@ -81,10 +104,11 @@
       <table class="table table-hover align-middle mb-0">
         <thead>
           <tr>
-            <th style="width:40%">Keyword</th>
+            <th style="width:35%">Keyword</th>
             <th class="text-center">Current</th>
             <th class="text-center">7 Days Ago</th>
             <th class="text-center">Change</th>
+            <th class="text-center">Est. Traffic</th>
             <th class="text-center">Trend</th>
             <th class="text-center">Actions</th>
           </tr>
@@ -143,6 +167,17 @@
                 {% endif %}
               {% else %}
                 <span class="change-flat">new</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if row.estimated_traffic is not none %}
+                <span class="fw-semibold text-success">~{{ "{:,}".format(row.estimated_traffic) }}/mo</span>
+              {% elif row.current_pos and not row.monthly_volume %}
+                <span class="text-muted" style="font-size:.78rem" title="Search volume unknown — find this keyword in Keyword Research to unlock traffic estimates">
+                  <i class="bi bi-question-circle"></i> no vol.
+                </span>
+              {% else %}
+                <span class="text-muted">—</span>
               {% endif %}
             </td>
             <td class="text-center">
