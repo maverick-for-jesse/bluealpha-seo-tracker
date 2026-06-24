@@ -494,6 +494,30 @@ def dataforseo_keyword_data(keywords: list, location_code: int = 2840, language_
     return results
 
 
+def dataforseo_keyword_difficulty(keywords: list, location_code: int = 2840, language_code: str = "en"):
+    """
+    Fetch SEO keyword difficulty (0-100) via DataForSEO Labs.
+    Higher = harder to rank organically.
+    """
+    url = "https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_difficulty/live"
+    payload = [{"keywords": keywords, "location_code": location_code, "language_code": language_code}]
+    resp = requests.post(
+        url,
+        auth=(DATAFORSEO_LOGIN, DATAFORSEO_PASSWORD),
+        json=payload,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    results = {}
+    for task in data.get("tasks", []):
+        for item in (task.get("result") or []):
+            kw = item.get("keyword", "")
+            results[kw.lower()] = item.get("keyword_difficulty")
+    return results
+
+
 def dataforseo_related_keywords(seed: str, location_code: int = 2840, language_code: str = "en"):
     """
     Fetch keyword suggestions/ideas for a seed via DataForSEO keyword_ideas endpoint.
@@ -543,8 +567,13 @@ def keyword_research():
             related = dataforseo_related_keywords(query, location_code=loc)
             all_keywords = list({query} | set(related[:29]))  # max 30 total
 
-            # Get volume data for all
+            # Get volume data and SEO difficulty for all
             volume_data = dataforseo_keyword_data(all_keywords, location_code=loc)
+            try:
+                difficulty_data = dataforseo_keyword_difficulty(all_keywords, location_code=loc)
+            except Exception as e:
+                logger.warning(f"Difficulty fetch failed: {e}")
+                difficulty_data = {}
 
             # Get currently tracked keywords for badge
             tracked_set = {kw.keyword.lower() for kw in Keyword.query.all()}
@@ -558,6 +587,7 @@ def keyword_research():
                     "competition": d.get("competition"),
                     "cpc": d.get("cpc"),
                     "trend": d.get("trend", []),
+                    "difficulty": difficulty_data.get(kw_text.lower()),
                     "already_tracked": kw_text.lower() in tracked_set,
                 })
 

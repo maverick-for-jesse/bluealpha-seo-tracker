@@ -8,6 +8,13 @@
   .volume-low  { color: #6c757d; font-weight: 600; }
   .comp-bar { height: 8px; border-radius: 4px; background: #e2e8f0; }
   .comp-fill { height: 8px; border-radius: 4px; background: var(--ba-blue); }
+  .diff-easy { color: #16a34a; font-weight: 700; }
+  .diff-medium { color: #d97706; font-weight: 700; }
+  .diff-hard { color: #dc2626; font-weight: 700; }
+  .diff-bar { height: 8px; border-radius: 4px; background: #e2e8f0; }
+  .diff-fill-easy { height: 8px; border-radius: 4px; background: #16a34a; }
+  .diff-fill-medium { height: 8px; border-radius: 4px; background: #d97706; }
+  .diff-fill-hard { height: 8px; border-radius: 4px; background: #dc2626; }
   .suggestion-badge { cursor: pointer; transition: all .15s; }
   .suggestion-badge:hover { background: var(--ba-navy) !important; color: #fff !important; }
   .results-table th { white-space: nowrap; }
@@ -127,7 +134,8 @@
           <th>Keyword</th>
           <th class="text-end">Monthly Volume</th>
           <th class="text-end">CPC</th>
-          <th style="min-width:120px">Competition</th>
+          <th style="min-width:120px">SEO Difficulty</th>
+          <th style="min-width:110px">Ad Competition</th>
           <th class="text-center">3-Mo Trend</th>
           <th class="text-center">Action</th>
         </tr>
@@ -162,12 +170,26 @@
             {% endif %}
           </td>
           <td>
+            {% if r.difficulty is not none %}
+              {% set diff = r.difficulty | int %}
+              {% if diff < 30 %}
+                <div class="diff-bar mb-1"><div class="diff-fill-easy" style="width:{{ diff }}%"></div></div>
+                <small class="diff-easy">Easy ({{ diff }}/100)</small>
+              {% elif diff < 60 %}
+                <div class="diff-bar mb-1"><div class="diff-fill-medium" style="width:{{ diff }}%"></div></div>
+                <small class="diff-medium">Medium ({{ diff }}/100)</small>
+              {% else %}
+                <div class="diff-bar mb-1"><div class="diff-fill-hard" style="width:{{ diff }}%"></div></div>
+                <small class="diff-hard">Hard ({{ diff }}/100)</small>
+              {% endif %}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
             {% if r.competition is not none %}
-              <div class="comp-bar mb-1">
-                <div class="comp-fill" style="width:{{ (r.competition * 100)|int }}%"></div>
-              </div>
+              {% set comp = r.competition | float %}
               <small class="text-muted">
-                {% set comp = r.competition | float %}
                 {% if comp < 0.33 %}Low{% elif comp < 0.66 %}Medium{% else %}High{% endif %}
                 ({{ "%.0f"|format(comp * 100) }}%)
               </small>
