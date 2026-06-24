@@ -167,8 +167,9 @@
                 <div class="comp-fill" style="width:{{ (r.competition * 100)|int }}%"></div>
               </div>
               <small class="text-muted">
-                {% if r.competition < 0.33 %}Low{% elif r.competition < 0.66 %}Medium{% else %}High{% endif %}
-                ({{ "%.0f"|format(r.competition * 100) }}%)
+                {% set comp = r.competition | float %}
+                {% if comp < 0.33 %}Low{% elif comp < 0.66 %}Medium{% else %}High{% endif %}
+                ({{ "%.0f"|format(comp * 100) }}%)
               </small>
             {% else %}
               <span class="text-muted">—</span>

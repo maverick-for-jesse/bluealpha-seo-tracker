@@ -475,11 +475,12 @@ def dataforseo_keyword_data(keywords: list, location_code: int = 2840, language_
             raise ValueError(f"DataForSEO error: {task.get('status_message', 'Unknown error')}")
         for item in (task.get("result") or []):
             kw = item.get("keyword", "")
+            comp = item.get("competition")
             results[kw.lower()] = {
                 "keyword": kw,
                 "search_volume": item.get("search_volume"),
-                "competition": item.get("competition"),          # 0.0–1.0
-                "cpc": item.get("cpc"),
+                "competition": float(comp) if comp is not None else None,
+                "cpc": float(item["cpc"]) if item.get("cpc") is not None else None,
                 "trend": [m.get("search_volume") for m in (item.get("monthly_searches") or [])[-3:]],
             }
     return results
