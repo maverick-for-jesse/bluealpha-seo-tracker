@@ -95,7 +95,7 @@
 <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
   <span class="text-muted small fw-semibold me-1">Filter by tag:</span>
   <a href="{{ url_for('dashboard', sort=sort) }}"
-     class="badge rounded-pill text-decoration-none {% if not tag_filter %}bg-secondary{% else 'bg-light text-dark border'%}">
+     class="badge rounded-pill text-decoration-none {% if not tag_filter %}bg-secondary{% else %}bg-light text-dark border{% endif %}">
     All
   </a>
   {% for tag in all_tags %}
