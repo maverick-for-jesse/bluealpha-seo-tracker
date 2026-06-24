@@ -138,6 +138,60 @@
   </div>
 </div>
 {% endif %}
+
+<!-- Content Ideas / People Also Ask -->
+<div class="card mt-4">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-question-circle me-2"></i>Content Ideas — People Also Ask</span>
+    <form method="POST" action="{{ url_for('fetch_keyword_questions', keyword_id=kw.id) }}">
+      <button type="submit" class="btn btn-sm btn-outline-light">
+        <i class="bi bi-arrow-repeat me-1"></i>
+        {% if questions %}Refresh{% else %}Fetch Questions{% endif %}
+      </button>
+    </form>
+  </div>
+  <div class="card-body">
+    {% if questions %}
+      <p class="text-muted mb-3" style="font-size:.88rem">
+        Real questions people ask Google about this keyword. Answer these on your product pages or blog to build ranking authority.
+        <span class="text-muted">Last updated: {{ questions[0].fetched_at.strftime('%b %d, %Y') }}</span>
+      </p>
+      <div class="row g-3">
+        {% for q in questions %}
+        <div class="col-md-6">
+          <div class="card h-100" style="border-left:4px solid var(--ba-blue)">
+            <div class="card-body py-3">
+              <div class="fw-semibold mb-1" style="color:var(--ba-navy)">
+                <i class="bi bi-question-circle-fill me-1" style="color:var(--ba-blue)"></i>
+                {{ q.question }}
+              </div>
+              {% if q.snippet %}
+              <p class="text-muted mb-2" style="font-size:.83rem">{{ q.snippet|truncate(200) }}</p>
+              {% endif %}
+              {% if q.source_url %}
+              <a href="{{ q.source_url }}" target="_blank" class="text-muted" style="font-size:.78rem">
+                <i class="bi bi-box-arrow-up-right me-1"></i>Current top answer
+              </a>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="text-center py-4 text-muted">
+        <i class="bi bi-question-circle" style="font-size:2.5rem"></i>
+        <p class="mt-2 mb-3">No content ideas fetched yet.</p>
+        <form method="POST" action="{{ url_for('fetch_keyword_questions', keyword_id=kw.id) }}">
+          <button type="submit" class="btn btn-navy">
+            <i class="bi bi-search me-1"></i>Fetch Content Ideas
+          </button>
+        </form>
+        <small class="text-muted d-block mt-2">Uses one SerpAPI credit</small>
+      </div>
+    {% endif %}
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}

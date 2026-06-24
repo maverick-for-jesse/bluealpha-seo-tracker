@@ -246,6 +246,45 @@
     </table>
   </div>
 </div>
+{% if questions %}
+<div class="card mt-4">
+  <div class="card-header d-flex align-items-center gap-2">
+    <i class="bi bi-question-circle"></i>
+    <span>People Also Ask — Content Ideas for "{{ query }}"</span>
+    <span class="badge bg-secondary ms-1">{{ questions|length }}</span>
+  </div>
+  <div class="card-body">
+    <p class="text-muted mb-3" style="font-size:.88rem">
+      These are real questions people ask Google related to this keyword.
+      Answer them on your product pages or blog to boost your ranking authority.
+    </p>
+    <div class="row g-3">
+      {% for q in questions %}
+      <div class="col-md-6">
+        <div class="card h-100" style="border-left:4px solid var(--ba-blue)">
+          <div class="card-body py-3">
+            <div class="fw-semibold mb-1" style="color:var(--ba-navy)">
+              <i class="bi bi-question-circle-fill me-1" style="color:var(--ba-blue)"></i>
+              {{ q.question }}
+            </div>
+            {% if q.snippet %}
+            <p class="text-muted mb-2" style="font-size:.83rem">{{ q.snippet|truncate(200) }}</p>
+            {% endif %}
+            {% if q.source_url %}
+            <a href="{{ q.source_url }}" target="_blank"
+               class="text-muted" style="font-size:.78rem">
+              <i class="bi bi-box-arrow-up-right me-1"></i>Current top answer
+            </a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% endif %}
 
 {% endblock %}

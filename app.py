@@ -119,6 +119,18 @@ class Ranking(db.Model):
     url = db.Column(db.String(2000), nullable=True)
 
 
+class KeywordQuestion(db.Model):
+    __tablename__ = "keyword_questions"
+    id = db.Column(db.Integer, primary_key=True)
+    keyword_id = db.Column(db.Integer, db.ForeignKey("keywords.id"), nullable=False)
+    question = db.Column(db.String(1000), nullable=False)
+    snippet = db.Column(db.Text, nullable=True)   # Google's answer snippet
+    source_url = db.Column(db.String(2000), nullable=True)
+    fetched_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    keyword_ref = db.relationship("Keyword", backref=db.backref("questions", lazy="dynamic",
+                                  cascade="all, delete-orphan"))
+
+
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
@@ -165,6 +177,50 @@ def check_rank_for_keyword(keyword_text: str):
             return i, link
 
     return None, None
+
+
+def fetch_people_also_ask(keyword_text: str):
+    """
+    Fetch People Also Ask questions from SerpAPI for a keyword.
+    Returns list of dicts: {question, snippet, source_url}
+    """
+    api_key = get_serpapi_key()
+    if not api_key:
+        return []
+    params = {
+        "engine": "google",
+        "q": keyword_text,
+        "api_key": api_key,
+        "gl": "us",
+        "hl": "en",
+        "num": 10,
+    }
+    response = requests.get("https://serpapi.com/search", params=params, timeout=30)
+    response.raise_for_status()
+    data = response.json()
+
+    questions = []
+    for item in data.get("related_questions", []):
+        questions.append({
+            "question": item.get("question", ""),
+            "snippet": item.get("snippet", ""),
+            "source_url": item.get("link", ""),
+        })
+    return questions
+
+
+def store_questions(keyword_id: int, questions: list):
+    """Store PAA questions for a keyword, replacing any previous set."""
+    KeywordQuestion.query.filter_by(keyword_id=keyword_id).delete()
+    for q in questions:
+        kq = KeywordQuestion(
+            keyword_id=keyword_id,
+            question=q["question"],
+            snippet=q.get("snippet"),
+            source_url=q.get("source_url"),
+        )
+        db.session.add(kq)
+    db.session.commit()
 
 
 def store_ranking(keyword_id: int, position, url):
@@ -418,12 +474,15 @@ def keyword_history(keyword_id):
         chart_labels.append(r.checked_at.strftime("%b %d"))
         chart_data.append(r.position if r.position else "null")
 
+    stored_questions = kw.questions.order_by(KeywordQuestion.fetched_at.desc()).all()
+
     return render_template(
         "keyword_history.html",
         kw=kw,
         rankings=rankings,
         chart_labels=json.dumps(chart_labels),
         chart_data=json.dumps([p if p != "null" else None for p in chart_data]),
+        questions=stored_questions,
     )
 
 
@@ -462,6 +521,23 @@ def cron_weekly_summary():
 def api_check_now():
     results = check_all_active_keywords()
     return jsonify({"status": "ok", "results": results})
+
+
+# ---------------------------------------------------------------------------
+# Content Ideas — People Also Ask
+# ---------------------------------------------------------------------------
+
+@app.route("/keywords/<int:keyword_id>/fetch-questions", methods=["POST"])
+@login_required
+def fetch_keyword_questions(keyword_id):
+    kw = Keyword.query.get_or_404(keyword_id)
+    try:
+        questions = fetch_people_also_ask(kw.keyword)
+        store_questions(keyword_id, questions)
+        flash(f"✅ Found {len(questions)} questions for \"{kw.keyword}\".", "success")
+    except Exception as e:
+        flash(f"Failed to fetch questions: {e}", "danger")
+    return redirect(url_for("keyword_history", keyword_id=keyword_id))
 
 
 # ---------------------------------------------------------------------------
@@ -567,6 +643,7 @@ def dataforseo_related_keywords(seed: str, location_code: int = 2840, language_c
 def keyword_research():
     results = None
     suggestions = []
+    questions = []
     query = None
     error = None
     location_code = request.form.get("location_code", "2840")
@@ -616,6 +693,13 @@ def keyword_research():
             # Suggestions = related keywords not in main results (chips)
             suggestions = [r["keyword"] for r in results[1:15]]
 
+            # People Also Ask questions for seed keyword
+            try:
+                questions = fetch_people_also_ask(query)
+            except Exception as e:
+                logger.warning(f"PAA fetch failed: {e}")
+                questions = []
+
         except Exception as e:
             logger.error(f"DataForSEO error: {e}")
             error = f"Keyword research failed: {e}"
@@ -625,6 +709,7 @@ def keyword_research():
         results=results,
         query=query,
         suggestions=suggestions,
+        questions=questions,
         error=error,
         location_code=location_code,
     )
