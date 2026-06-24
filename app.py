@@ -923,28 +923,54 @@ def dataforseo_keyword_data(keywords: list, location_code: int = 2840, language_
     return results
 
 
-def dataforseo_keyword_difficulty(keywords: list, location_code: int = 2840, language_code: str = "en"):
+def estimate_seo_difficulty(search_volume, competition, cpc):
     """
-    Fetch SEO keyword difficulty (0-100) via DataForSEO Labs.
-    Higher = harder to rank organically.
+    Estimate SEO difficulty (0-100) from available signals.
+    Uses search volume, ad competition, and CPC as proxies.
+    High volume + high ad competition + high CPC = hard to rank.
     """
-    url = "https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_difficulty/live"
-    payload = [{"keywords": keywords, "location_code": location_code, "language_code": language_code}]
-    resp = requests.post(
-        url,
-        auth=(DATAFORSEO_LOGIN, DATAFORSEO_PASSWORD),
-        json=payload,
-        timeout=30,
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    if search_volume is None and competition is None and cpc is None:
+        return None
 
-    results = {}
-    for task in data.get("tasks", []):
-        for item in (task.get("result") or []):
-            kw = item.get("keyword", "")
-            results[kw.lower()] = item.get("keyword_difficulty")
-    return results
+    score = 0
+
+    # Search volume component (0-40 pts): more searches = more competition
+    vol = search_volume or 0
+    if vol >= 100000:
+        score += 40
+    elif vol >= 50000:
+        score += 35
+    elif vol >= 10000:
+        score += 28
+    elif vol >= 5000:
+        score += 22
+    elif vol >= 1000:
+        score += 15
+    elif vol >= 500:
+        score += 10
+    else:
+        score += 5
+
+    # Ad competition component (0-35 pts): high paid competition = hard organic too
+    comp = float(competition) if competition is not None else 0.5
+    score += round(comp * 35)
+
+    # CPC component (0-25 pts): high CPC = high commercial value = more competitors
+    cpc_val = float(cpc) if cpc is not None else 0
+    if cpc_val >= 5:
+        score += 25
+    elif cpc_val >= 3:
+        score += 20
+    elif cpc_val >= 2:
+        score += 15
+    elif cpc_val >= 1:
+        score += 10
+    elif cpc_val >= 0.5:
+        score += 5
+    else:
+        score += 2
+
+    return min(score, 100)
 
 
 def dataforseo_related_keywords(seed: str, location_code: int = 2840, language_code: str = "en"):
@@ -997,13 +1023,8 @@ def keyword_research():
             related = dataforseo_related_keywords(query, location_code=loc)
             all_keywords = list({query} | set(related[:29]))  # max 30 total
 
-            # Get volume data and SEO difficulty for all
+            # Get volume data for all
             volume_data = dataforseo_keyword_data(all_keywords, location_code=loc)
-            try:
-                difficulty_data = dataforseo_keyword_difficulty(all_keywords, location_code=loc)
-            except Exception as e:
-                logger.warning(f"Difficulty fetch failed: {e}")
-                difficulty_data = {}
 
             # Get currently tracked keywords for badge
             tracked_set = {kw.keyword.lower() for kw in Keyword.query.all()}
@@ -1011,13 +1032,16 @@ def keyword_research():
             results = []
             for kw_text in all_keywords:
                 d = volume_data.get(kw_text.lower(), {})
+                comp = d.get("competition")
+                cpc = d.get("cpc")
+                vol = d.get("search_volume")
                 results.append({
                     "keyword": d.get("keyword", kw_text),
-                    "search_volume": d.get("search_volume"),
-                    "competition": d.get("competition"),
-                    "cpc": d.get("cpc"),
+                    "search_volume": vol,
+                    "competition": comp,
+                    "cpc": cpc,
                     "trend": d.get("trend", []),
-                    "difficulty": difficulty_data.get(kw_text.lower()),
+                    "difficulty": estimate_seo_difficulty(vol, comp, cpc),
                     "already_tracked": kw_text.lower() in tracked_set,
                 })
 
