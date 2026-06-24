@@ -2,12 +2,15 @@ import os
 import io
 import csv
 import json
+import re
 import logging
 from datetime import datetime, timedelta, date
 from functools import wraps
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import requests
+from bs4 import BeautifulSoup
 from flask import (
     Flask, render_template, redirect, url_for, request,
     flash, jsonify, abort, Response
@@ -153,6 +156,17 @@ class KeywordQuestion(db.Model):
     fetched_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     keyword_ref = db.relationship("Keyword", backref=db.backref("questions", lazy="dynamic",
                                   cascade="all, delete-orphan"))
+
+
+class ContentIdea(db.Model):
+    __tablename__ = "content_ideas"
+    id = db.Column(db.Integer, primary_key=True)
+    keyword_id = db.Column(db.Integer, db.ForeignKey("keywords.id"), nullable=False)
+    title = db.Column(db.String(500), nullable=False)
+    status = db.Column(db.String(50), default="idea", nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    notes = db.Column(db.Text, nullable=True)
+    keyword_ref = db.relationship("Keyword", backref=db.backref("content_ideas", lazy="dynamic"))
 
 
 # ---------------------------------------------------------------------------
@@ -1006,6 +1020,422 @@ def keyword_research_export():
     except Exception as e:
         flash(f"Export failed: {e}", "danger")
         return redirect(url_for("keyword_research"))
+
+
+# ---------------------------------------------------------------------------
+# SEO Grader helpers
+# ---------------------------------------------------------------------------
+
+def analyze_page_seo(url: str, keyword: str = ""):
+    """Fetch a URL and analyze its on-page SEO. Returns a dict of checks and score."""
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; BlueAlphaSEOBot/1.0)"}
+    resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+    resp.raise_for_status()
+
+    soup = BeautifulSoup(resp.text, "lxml")
+    kw_lower = keyword.strip().lower()
+
+    # --- Title ---
+    title_tag = soup.find("title")
+    title_text = title_tag.get_text(strip=True) if title_tag else ""
+    title_len = len(title_text)
+
+    # --- Meta description ---
+    meta_desc = ""
+    meta_tag = soup.find("meta", attrs={"name": re.compile(r"^description$", re.I)})
+    if meta_tag:
+        meta_desc = meta_tag.get("content", "")
+    meta_len = len(meta_desc)
+
+    # --- H1 ---
+    h1_tags = soup.find_all("h1")
+    h1_count = len(h1_tags)
+    h1_text = " ".join(h.get_text(strip=True) for h in h1_tags)
+
+    # --- H2s ---
+    h2_count = len(soup.find_all("h2"))
+
+    # --- Images without alt ---
+    images = soup.find_all("img")
+    imgs_no_alt = sum(1 for img in images if not img.get("alt", "").strip())
+
+    # --- Body word count ---
+    body = soup.find("body")
+    body_text = body.get_text(separator=" ", strip=True) if body else ""
+    words = re.findall(r"\b\w+\b", body_text)
+    word_count = len(words)
+
+    # --- Keyword density ---
+    kw_density = 0.0
+    if kw_lower and word_count > 0:
+        kw_words = kw_lower.split()
+        text_lower = body_text.lower()
+        if len(kw_words) == 1:
+            kw_occurrences = len(re.findall(r"\b" + re.escape(kw_lower) + r"\b", text_lower))
+        else:
+            kw_occurrences = text_lower.count(kw_lower)
+        kw_density = round((kw_occurrences / word_count) * 100, 2)
+
+    # --- Internal links ---
+    parsed = urlparse(url)
+    base_domain = parsed.netloc
+    links = soup.find_all("a", href=True)
+    internal_links = sum(
+        1 for a in links
+        if a["href"].startswith("/") or base_domain in a["href"]
+    )
+
+    # --- URL structure ---
+    has_query = bool(parsed.query)
+    url_path = parsed.path
+    url_clean = not has_query and len(url_path) < 80
+
+    # --- Build checks ---
+    checks = []
+    total_points = 0
+    max_points = 0
+
+    def add_check(name, status, points, max_pts, message, recommendation=""):
+        nonlocal total_points, max_points
+        total_points += points
+        max_points += max_pts
+        checks.append({
+            "name": name,
+            "status": status,  # pass/warn/fail
+            "points": points,
+            "max": max_pts,
+            "message": message,
+            "recommendation": recommendation,
+        })
+
+    # Title checks
+    if not title_text:
+        add_check("Title Tag", "fail", 0, 15, "No title tag found.",
+                  "Add a <title> tag with 50-60 characters including your target keyword.")
+    elif 50 <= title_len <= 60:
+        add_check("Title Tag Length", "pass", 10, 10, f"Title is {title_len} chars (ideal 50-60).")
+    elif title_len < 30:
+        add_check("Title Tag Length", "fail", 3, 10, f"Title is only {title_len} chars (too short).",
+                  "Expand your title to 50-60 characters.")
+    elif title_len > 70:
+        add_check("Title Tag Length", "warn", 6, 10, f"Title is {title_len} chars (may be truncated in SERPs).",
+                  "Shorten title to under 60 characters to avoid truncation.")
+    else:
+        add_check("Title Tag Length", "warn", 7, 10, f"Title is {title_len} chars (slightly outside ideal 50-60).",
+                  "Aim for 50-60 characters.")
+
+    if title_text:
+        if kw_lower and kw_lower in title_text.lower():
+            add_check("Keyword in Title", "pass", 10, 10, f'Keyword "{keyword}" found in title.')
+        elif kw_lower:
+            add_check("Keyword in Title", "fail", 0, 10, f'Keyword "{keyword}" not found in title.',
+                      "Include your target keyword near the beginning of the title tag.")
+        else:
+            add_check("Keyword in Title", "pass", 10, 10, "No keyword to check.", "")
+
+    # Meta description checks
+    if not meta_desc:
+        add_check("Meta Description", "fail", 0, 15, "No meta description found.",
+                  "Add a meta description of 150-160 characters including your target keyword.")
+    elif 150 <= meta_len <= 160:
+        add_check("Meta Description Length", "pass", 10, 10, f"Meta description is {meta_len} chars (ideal).")
+    elif meta_len < 100:
+        add_check("Meta Description Length", "warn", 5, 10, f"Meta description is only {meta_len} chars (too short).",
+                  "Expand to 150-160 characters for better CTR.")
+    elif meta_len > 170:
+        add_check("Meta Description Length", "warn", 6, 10, f"Meta description is {meta_len} chars (may be truncated).",
+                  "Shorten to under 160 characters.")
+    else:
+        add_check("Meta Description Length", "warn", 7, 10, f"Meta description is {meta_len} chars (close to ideal 150-160).")
+
+    if meta_desc:
+        if kw_lower and kw_lower in meta_desc.lower():
+            add_check("Keyword in Meta Description", "pass", 5, 5, f'Keyword "{keyword}" found in meta description.')
+        elif kw_lower:
+            add_check("Keyword in Meta Description", "warn", 2, 5, f'Keyword "{keyword}" not in meta description.',
+                      "Include your target keyword naturally in the meta description.")
+        else:
+            add_check("Keyword in Meta Description", "pass", 5, 5, "No keyword to check.")
+
+    # H1 checks
+    if h1_count == 0:
+        add_check("H1 Tag", "fail", 0, 15, "No H1 tag found.",
+                  "Add exactly one H1 tag containing your target keyword.")
+    elif h1_count == 1:
+        if kw_lower and kw_lower in h1_text.lower():
+            add_check("H1 Tag", "pass", 15, 15, f"One H1 found containing the keyword.")
+        elif kw_lower:
+            add_check("H1 Tag", "warn", 10, 15, f"One H1 found but keyword \"{keyword}\" not in H1.",
+                      "Include your target keyword in the H1 tag.")
+        else:
+            add_check("H1 Tag", "pass", 15, 15, "One H1 tag found.")
+    else:
+        add_check("H1 Tag", "warn", 8, 15, f"{h1_count} H1 tags found (should be exactly 1).",
+                  "Use only one H1 per page.")
+
+    # H2 check
+    if h2_count >= 2:
+        add_check("H2 Tags", "pass", 5, 5, f"{h2_count} H2 tags found — good content structure.")
+    elif h2_count == 1:
+        add_check("H2 Tags", "warn", 3, 5, "Only 1 H2 tag — consider adding more subheadings.",
+                  "Add H2 subheadings to improve content structure and scannability.")
+    else:
+        add_check("H2 Tags", "fail", 0, 5, "No H2 tags found.",
+                  "Add H2 subheadings to organize your content.")
+
+    # Images alt text
+    if images:
+        if imgs_no_alt == 0:
+            add_check("Image Alt Text", "pass", 5, 5, f"All {len(images)} images have alt text.")
+        else:
+            add_check("Image Alt Text", "warn", max(0, 5 - imgs_no_alt), 5,
+                      f"{imgs_no_alt} of {len(images)} images missing alt text.",
+                      "Add descriptive alt text to all images for accessibility and SEO.")
+    else:
+        add_check("Image Alt Text", "pass", 5, 5, "No images found on page.")
+
+    # Word count
+    if word_count >= 1000:
+        add_check("Word Count", "pass", 10, 10, f"{word_count:,} words — great content depth.")
+    elif word_count >= 500:
+        add_check("Word Count", "warn", 6, 10, f"{word_count:,} words — decent but could be deeper.",
+                  "Aim for 1,000+ words for competitive topics.")
+    else:
+        add_check("Word Count", "fail", 2, 10, f"Only {word_count:,} words — thin content.",
+                  "Expand to at least 500-1,000 words with useful, relevant information.")
+
+    # Keyword density
+    if kw_lower:
+        if 1.0 <= kw_density <= 2.5:
+            add_check("Keyword Density", "pass", 5, 5, f"Keyword density is {kw_density}% (ideal 1-2.5%).")
+        elif kw_density < 0.5:
+            add_check("Keyword Density", "warn", 2, 5, f"Keyword density is {kw_density}% (too low).",
+                      "Mention your keyword more naturally throughout the content.")
+        elif kw_density > 3.5:
+            add_check("Keyword Density", "fail", 0, 5, f"Keyword density is {kw_density}% (keyword stuffing risk).",
+                      "Reduce keyword repetition — aim for 1-2.5%.")
+        else:
+            add_check("Keyword Density", "warn", 3, 5, f"Keyword density is {kw_density}% (slightly outside ideal).")
+    else:
+        add_check("Keyword Density", "pass", 5, 5, "No keyword specified.")
+
+    # Internal links
+    if internal_links >= 3:
+        add_check("Internal Links", "pass", 5, 5, f"{internal_links} internal links — good internal linking.")
+    elif internal_links >= 1:
+        add_check("Internal Links", "warn", 3, 5, f"Only {internal_links} internal link(s).",
+                  "Add more internal links to help users and Google discover other pages.")
+    else:
+        add_check("Internal Links", "fail", 0, 5, "No internal links found.",
+                  "Add internal links to related pages on your site.")
+
+    # URL structure
+    if url_clean:
+        add_check("URL Structure", "pass", 5, 5, "URL is clean and concise.")
+    elif has_query:
+        add_check("URL Structure", "warn", 2, 5, "URL contains query parameters.",
+                  "Use clean, descriptive URLs without query strings when possible.")
+    else:
+        add_check("URL Structure", "warn", 3, 5, "URL path is long (80+ chars).",
+                  "Keep URLs short and descriptive.")
+
+    # Compute final score
+    score = round((total_points / max_points) * 100) if max_points > 0 else 0
+
+    return {
+        "url": url,
+        "keyword": keyword,
+        "title": title_text,
+        "title_len": title_len,
+        "meta_desc": meta_desc,
+        "meta_len": meta_len,
+        "h1_count": h1_count,
+        "h2_count": h2_count,
+        "word_count": word_count,
+        "kw_density": kw_density,
+        "internal_links": internal_links,
+        "imgs_no_alt": imgs_no_alt,
+        "img_total": len(images),
+        "checks": checks,
+        "score": score,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Routes — SEO Grader
+# ---------------------------------------------------------------------------
+
+@app.route("/seo-grader", methods=["GET", "POST"])
+@login_required
+def seo_grader():
+    analysis = None
+    error = None
+    if request.method == "POST":
+        url = request.form.get("url", "").strip()
+        keyword = request.form.get("keyword", "").strip()
+        if not url:
+            flash("Please enter a URL.", "warning")
+        else:
+            if not url.startswith(("http://", "https://")):
+                url = "https://" + url
+            try:
+                analysis = analyze_page_seo(url, keyword)
+            except Exception as e:
+                error = str(e)
+                flash(f"Failed to analyze page: {e}", "danger")
+    return render_template("seo_grader.html", analysis=analysis, error=error)
+
+
+# ---------------------------------------------------------------------------
+# Routes — Content Calendar
+# ---------------------------------------------------------------------------
+
+@app.route("/content-calendar")
+@login_required
+def content_calendar():
+    # Fetch all keywords that have PAA questions
+    keywords_with_questions = (
+        db.session.query(Keyword)
+        .join(KeywordQuestion, KeywordQuestion.keyword_id == Keyword.id)
+        .filter(Keyword.active == True)
+        .distinct()
+        .all()
+    )
+
+    cards = []
+    for kw in keywords_with_questions:
+        questions_list = kw.questions.order_by(KeywordQuestion.fetched_at.asc()).all()
+        if not questions_list:
+            continue
+
+        # Top question = first/most compelling as post title
+        top_question = questions_list[0].question
+
+        # Check if ContentIdea already exists for this keyword
+        idea = ContentIdea.query.filter_by(keyword_id=kw.id).first()
+        if not idea:
+            idea = ContentIdea(
+                keyword_id=kw.id,
+                title=top_question,
+                status="idea",
+            )
+            db.session.add(idea)
+            db.session.flush()
+
+        # Estimate traffic at #1
+        traffic_potential = None
+        if kw.monthly_volume:
+            traffic_potential = round(kw.monthly_volume * 0.314)
+
+        cards.append({
+            "idea": idea,
+            "keyword": kw,
+            "questions": questions_list,
+            "traffic_potential": traffic_potential,
+        })
+
+    db.session.commit()
+    return render_template("content_calendar.html", cards=cards)
+
+
+@app.route("/content-calendar/update-status", methods=["POST"])
+@login_required
+def content_calendar_update_status():
+    data = request.get_json(force=True)
+    idea_id = data.get("idea_id")
+    new_status = data.get("status", "idea")
+    notes = data.get("notes")
+
+    idea = ContentIdea.query.get(idea_id)
+    if not idea:
+        return jsonify({"error": "Not found"}), 404
+
+    valid_statuses = ["idea", "in_progress", "published"]
+    if new_status not in valid_statuses:
+        return jsonify({"error": "Invalid status"}), 400
+
+    idea.status = new_status
+    if notes is not None:
+        idea.notes = notes
+    db.session.commit()
+
+    return jsonify({"ok": True, "status": idea.status, "idea_id": idea.id})
+
+
+# ---------------------------------------------------------------------------
+# Routes — SERP Preview
+# ---------------------------------------------------------------------------
+
+def fetch_page_meta(url: str):
+    """Fetch title and meta description from a URL."""
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; BlueAlphaSEOBot/1.0)"}
+    resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "lxml")
+
+    title_tag = soup.find("title")
+    title = title_tag.get_text(strip=True) if title_tag else ""
+
+    meta_tag = soup.find("meta", attrs={"name": re.compile(r"^description$", re.I)})
+    description = meta_tag.get("content", "") if meta_tag else ""
+
+    return title, description
+
+
+def format_breadcrumb_url(url: str) -> str:
+    """Format URL in Google's breadcrumb style."""
+    parsed = urlparse(url)
+    parts = [parsed.netloc]
+    path_parts = [p for p in parsed.path.split("/") if p]
+    parts.extend(path_parts)
+    return " › ".join(parts)
+
+
+@app.route("/serp-preview", methods=["GET", "POST"])
+@login_required
+def serp_preview():
+    fetched_title = ""
+    fetched_desc = ""
+    fetched_url = ""
+    error = None
+    tracked_urls = []
+
+    # Collect tracked ranking URLs for the dropdown
+    recent_rankings = (
+        db.session.query(Ranking)
+        .filter(Ranking.url.isnot(None))
+        .order_by(Ranking.checked_at.desc())
+        .limit(50)
+        .all()
+    )
+    seen_urls = set()
+    for r in recent_rankings:
+        if r.url and r.url not in seen_urls:
+            seen_urls.add(r.url)
+            tracked_urls.append({"url": r.url, "keyword": r.keyword_ref.keyword if r.keyword_ref else ""})
+
+    if request.method == "POST":
+        fetched_url = request.form.get("url", "").strip()
+        if not fetched_url:
+            flash("Please enter a URL.", "warning")
+        else:
+            if not fetched_url.startswith(("http://", "https://")):
+                fetched_url = "https://" + fetched_url
+            try:
+                fetched_title, fetched_desc = fetch_page_meta(fetched_url)
+            except Exception as e:
+                error = str(e)
+                flash(f"Failed to fetch page: {e}", "danger")
+
+    return render_template(
+        "serp_preview.html",
+        fetched_title=fetched_title,
+        fetched_desc=fetched_desc,
+        fetched_url=fetched_url,
+        breadcrumb_url=format_breadcrumb_url(fetched_url) if fetched_url else "",
+        error=error,
+        tracked_urls=tracked_urls,
+    )
 
 
 # ---------------------------------------------------------------------------

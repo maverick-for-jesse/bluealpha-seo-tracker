@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}Content Calendar — Blue Alpha SEO{% endblock %}
+
+{% block head %}
+<style>
+  .idea-card {
+    transition: transform .15s, box-shadow .15s;
+    border-left: 4px solid var(--ba-navy) !important;
+  }
+  .idea-card:hover { transform: translateY(-2px); box-shadow: 0 4px 18px rgba(0,0,0,.12) !important; }
+  .status-idea { border-left-color: #6c757d !important; }
+  .status-in_progress { border-left-color: #f59e0b !important; }
+  .status-published { border-left-color: #16a34a !important; }
+  .question-list { font-size: .85rem; }
+  .question-list li { padding: 3px 0; border-bottom: 1px solid #f0f0f0; }
+  .question-list li:last-child { border-bottom: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <div class="d-flex align-items-center">
+    <i class="bi bi-calendar3 fs-3 text-primary me-3"></i>
+    <div>
+      <h2 class="mb-0 fw-bold" style="color:var(--ba-navy)">Content Calendar</h2>
+      <p class="text-muted mb-0">Blog post ideas from your People Also Ask data</p>
+    </div>
+  </div>
+  <div class="text-muted small">
+    <i class="bi bi-info-circle me-1"></i>
+    Fetch PAA questions from keyword history pages to populate this calendar.
+  </div>
+</div>
+
+{% if cards %}
+<!-- Filter bar -->
+<div class="mb-3 d-flex gap-2 flex-wrap">
+  <button class="btn btn-sm btn-outline-secondary filter-btn active" data-filter="all">All ({{ cards|length }})</button>
+  <button class="btn btn-sm btn-outline-secondary filter-btn" data-filter="idea">💡 Ideas</button>
+  <button class="btn btn-sm btn-outline-warning filter-btn" data-filter="in_progress">🚧 In Progress</button>
+  <button class="btn btn-sm btn-outline-success filter-btn" data-filter="published">✅ Published</button>
+</div>
+
+<div class="row g-4" id="card-grid">
+  {% for card in cards %}
+  <div class="col-md-6 col-xl-4 card-item" data-status="{{ card.idea.status }}">
+    <div class="card idea-card h-100 status-{{ card.idea.status }}">
+      <div class="card-body">
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <span class="badge bg-secondary small">{{ card.keyword.keyword }}</span>
+          {% if card.traffic_potential %}
+          <span class="badge" style="background:var(--ba-navy)">
+            <i class="bi bi-graph-up me-1"></i>~{{ card.traffic_potential|int }} visits/mo @#1
+          </span>
+          {% endif %}
+        </div>
+
+        <!-- Post Title -->
+        <h5 class="fw-bold mb-3" style="color:var(--ba-navy);font-size:1rem;line-height:1.4">
+          <i class="bi bi-pen me-1 text-muted"></i>
+          {{ card.idea.title }}
+        </h5>
+
+        <!-- Questions (content outline) -->
+        <div class="mb-3">
+          <p class="text-muted small fw-semibold mb-1">
+            <i class="bi bi-list-ul me-1"></i>Content Outline ({{ card.questions|length }} questions)
+          </p>
+          <ul class="question-list list-unstyled mb-0 ps-2">
+            {% for q in card.questions[:5] %}
+            <li class="text-muted">{{ q.question }}</li>
+            {% endfor %}
+            {% if card.questions|length > 5 %}
+            <li class="text-muted fst-italic">+{{ card.questions|length - 5 }} more questions…</li>
+            {% endif %}
+          </ul>
+        </div>
+
+        <!-- Status -->
+        <div class="mt-auto pt-2 border-top">
+          <div class="d-flex align-items-center gap-2">
+            <label class="small text-muted mb-0 fw-semibold">Status:</label>
+            <select class="form-select form-select-sm status-select w-auto"
+                    data-idea-id="{{ card.idea.id }}"
+                    style="font-size:.82rem">
+              <option value="idea" {% if card.idea.status == 'idea' %}selected{% endif %}>💡 Idea</option>
+              <option value="in_progress" {% if card.idea.status == 'in_progress' %}selected{% endif %}>🚧 In Progress</option>
+              <option value="published" {% if card.idea.status == 'published' %}selected{% endif %}>✅ Published</option>
+            </select>
+            <span class="save-indicator text-success small" style="display:none">
+              <i class="bi bi-check-circle"></i> Saved
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="text-center py-5 text-muted">
+  <i class="bi bi-calendar-x display-4 mb-3 d-block"></i>
+  <h5>No content ideas yet</h5>
+  <p class="mb-3">Fetch "People Also Ask" questions from your keyword history pages to generate content ideas.</p>
+  <a href="{{ url_for('dashboard') }}" class="btn btn-navy">
+    <i class="bi bi-speedometer2 me-1"></i> Go to Dashboard
+  </a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Status update via AJAX
+document.querySelectorAll('.status-select').forEach(function(select) {
+  select.addEventListener('change', function() {
+    var ideaId = this.dataset.ideaId;
+    var status = this.value;
+    var card = this.closest('.card-item');
+    var indicator = this.closest('.card-body').querySelector('.save-indicator');
+
+    fetch('/content-calendar/update-status', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({idea_id: parseInt(ideaId), status: status})
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        // Update card border class
+        var cardEl = card.querySelector('.idea-card');
+        cardEl.classList.remove('status-idea', 'status-in_progress', 'status-published');
+        cardEl.classList.add('status-' + status);
+        // Update data attribute for filter
+        card.dataset.status = status;
+        // Show saved indicator
+        if (indicator) {
+          indicator.style.display = 'inline';
+          setTimeout(() => indicator.style.display = 'none', 2000);
+        }
+      }
+    })
+    .catch(err => console.error('Status update failed:', err));
+  });
+});
+
+// Filter buttons
+document.querySelectorAll('.filter-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    var filter = this.dataset.filter;
+    document.querySelectorAll('.card-item').forEach(function(item) {
+      if (filter === 'all' || item.dataset.status === filter) {
+        item.style.display = '';
+      } else {
+        item.style.display = 'none';
+      }
+    });
+  });
+});
+</script>
+{% endblock %}

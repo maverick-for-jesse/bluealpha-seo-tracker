@@ -1,0 +1,312 @@
+{% extends "base.html" %}
+{% block title %}SERP Preview — Blue Alpha SEO{% endblock %}
+
+{% block head %}
+<style>
+  /* Google-style SERP card */
+  .serp-card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 20px 24px;
+    max-width: 600px;
+    box-shadow: 0 1px 6px rgba(0,0,0,.15);
+  }
+  .serp-breadcrumb {
+    font-size: 13px;
+    color: #202124;
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+  .serp-favicon {
+    width: 18px; height: 18px;
+    background: #e8f0fe;
+    border-radius: 50%;
+    margin-right: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+  .serp-url-text { color: #202124; font-size: 13px; }
+  .serp-title {
+    font-size: 20px;
+    color: #1a0dab;
+    text-decoration: none;
+    display: block;
+    line-height: 1.3;
+    margin-bottom: 4px;
+    font-family: arial, sans-serif;
+  }
+  .serp-title:hover { text-decoration: underline; }
+  .serp-title.truncated { color: #d93025; }
+  .serp-desc {
+    font-size: 14px;
+    color: #4d5156;
+    line-height: 1.58;
+    font-family: arial, sans-serif;
+  }
+  .serp-desc.truncated-text { color: #d93025; }
+  .warning-badge {
+    display: inline-flex; align-items: center;
+    background: #fff3cd; color: #856404;
+    border: 1px solid #ffc107;
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-size: .82rem;
+    margin: 3px 3px 3px 0;
+  }
+  .suggestion-box {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .serp-section-label {
+    font-size: .8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: #6c757d;
+    margin-bottom: 12px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4">
+  <i class="bi bi-eye fs-3 text-primary me-3"></i>
+  <div>
+    <h2 class="mb-0 fw-bold" style="color:var(--ba-navy)">SERP Preview</h2>
+    <p class="text-muted mb-0">See how your page looks in Google search results</p>
+  </div>
+</div>
+
+<!-- Input Form -->
+<div class="card mb-4">
+  <div class="card-body p-4">
+    <form method="POST" action="{{ url_for('serp_preview') }}">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-8">
+          <label class="form-label fw-semibold">Page URL</label>
+          <input type="url" name="url" id="formUrl" class="form-control form-control-lg"
+                 placeholder="https://bluealphabelts.com/products/gun-belt"
+                 value="{{ fetched_url }}" required>
+        </div>
+        {% if tracked_urls %}
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Or pick a ranked URL</label>
+          <select class="form-select form-select-lg" id="trackedUrlSelect">
+            <option value="">— pick from ranked pages —</option>
+            {% for t in tracked_urls %}
+            <option value="{{ t.url }}">{{ t.keyword }} — {{ t.url[:50] }}{% if t.url|length > 50 %}…{% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <div class="col-12 col-md-auto">
+          <button type="submit" class="btn btn-navy btn-lg px-4">
+            <i class="bi bi-search me-1"></i> Fetch & Preview
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if fetched_url %}
+<!-- Warnings -->
+{% set title_len = fetched_title|length %}
+{% set desc_len = fetched_desc|length %}
+{% set title_truncated = title_len > 60 %}
+{% set title_short = title_len > 0 and title_len < 30 %}
+{% set title_missing = title_len == 0 %}
+{% set desc_missing = desc_len == 0 %}
+{% set desc_truncated = desc_len > 160 %}
+{% set desc_short = desc_len > 0 and desc_len < 100 %}
+
+{% set has_warnings = title_truncated or title_short or title_missing or desc_missing or desc_truncated or desc_short %}
+
+{% if has_warnings %}
+<div class="mb-4">
+  <h6 class="fw-bold mb-2" style="color:var(--ba-navy)"><i class="bi bi-exclamation-triangle me-1 text-warning"></i> SEO Warnings</h6>
+  {% if title_missing %}<span class="warning-badge">❌ Title tag missing</span>{% endif %}
+  {% if title_short %}<span class="warning-badge">⚠️ Title too short ({{ title_len }} chars)</span>{% endif %}
+  {% if title_truncated %}<span class="warning-badge">⚠️ Title too long — will be cut off ({{ title_len }} chars, max 60)</span>{% endif %}
+  {% if desc_missing %}<span class="warning-badge">❌ Meta description missing</span>{% endif %}
+  {% if desc_short %}<span class="warning-badge">⚠️ Meta description too short ({{ desc_len }} chars, min 100)</span>{% endif %}
+  {% if desc_truncated %}<span class="warning-badge">⚠️ Meta description too long — will be cut off ({{ desc_len }} chars, max 160)</span>{% endif %}
+</div>
+{% endif %}
+
+<!-- Side-by-side preview -->
+<div class="row g-4">
+  <!-- Current -->
+  <div class="col-lg-6">
+    <div class="serp-section-label"><i class="bi bi-eye me-1"></i> Current Preview</div>
+    <div class="serp-card">
+      <div class="serp-breadcrumb">
+        <div class="serp-favicon">🌐</div>
+        <span class="serp-url-text">{{ breadcrumb_url }}</span>
+      </div>
+      <a href="{{ fetched_url }}" target="_blank"
+         class="serp-title {% if title_truncated %}truncated{% endif %}">
+        {% if fetched_title %}
+          {% if title_truncated %}{{ fetched_title[:60] }}…{% else %}{{ fetched_title }}{% endif %}
+        {% else %}
+          <em class="text-muted" style="color:#999;font-style:italic">(No title tag)</em>
+        {% endif %}
+      </a>
+      <div class="serp-desc {% if desc_truncated %}truncated-text{% endif %}">
+        {% if fetched_desc %}
+          {% if desc_truncated %}{{ fetched_desc[:160] }}…{% else %}{{ fetched_desc }}{% endif %}
+        {% else %}
+          <em style="color:#999;font-style:italic">(No meta description — Google will auto-generate this)</em>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Length indicators -->
+    <div class="mt-3">
+      <div class="d-flex justify-content-between small text-muted mb-1">
+        <span>Title</span>
+        <span class="fw-semibold {% if title_truncated or title_missing %}text-danger{% elif title_short %}text-warning{% else %}text-success{% endif %}">
+          {{ title_len }}/60 chars
+        </span>
+      </div>
+      <div class="progress mb-2" style="height:6px;border-radius:4px;">
+        <div class="progress-bar {% if title_truncated %}bg-danger{% elif title_short %}bg-warning{% else %}bg-success{% endif %}"
+             style="width:{{ [title_len, 80] | min * 100 // 80 }}%;border-radius:4px;"></div>
+      </div>
+      <div class="d-flex justify-content-between small text-muted mb-1">
+        <span>Meta Description</span>
+        <span class="fw-semibold {% if desc_truncated or desc_missing %}text-danger{% elif desc_short %}text-warning{% else %}text-success{% endif %}">
+          {{ desc_len }}/160 chars
+        </span>
+      </div>
+      <div class="progress" style="height:6px;border-radius:4px;">
+        <div class="progress-bar {% if desc_truncated %}bg-danger{% elif desc_short or desc_missing %}bg-warning{% else %}bg-success{% endif %}"
+             style="width:{{ [desc_len, 200] | min * 100 // 200 }}%;border-radius:4px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Suggested / Live Preview -->
+  <div class="col-lg-6">
+    <div class="serp-section-label"><i class="bi bi-pencil me-1"></i> Suggested Preview (edit below)</div>
+    <div class="serp-card" id="suggestedCard">
+      <div class="serp-breadcrumb">
+        <div class="serp-favicon">🌐</div>
+        <span class="serp-url-text">{{ breadcrumb_url }}</span>
+      </div>
+      <a href="#" class="serp-title" id="previewTitle">
+        {% if fetched_title %}{{ fetched_title[:60] }}{% if title_truncated %}…{% endif %}{% else %}Your improved title here{% endif %}
+      </a>
+      <div class="serp-desc" id="previewDesc">
+        {% if fetched_desc %}{{ fetched_desc[:160] }}{% if desc_truncated %}…{% endif %}{% else %}Your improved meta description here (150–160 chars ideal).{% endif %}
+      </div>
+    </div>
+
+    <!-- Edit fields -->
+    <div class="suggestion-box mt-3">
+      <div class="mb-3">
+        <label class="form-label small fw-semibold">Improved Title</label>
+        <input type="text" id="suggestTitle" class="form-control form-control-sm"
+               placeholder="Type your improved title..."
+               value="{{ fetched_title }}" maxlength="80">
+        <div class="d-flex justify-content-between mt-1">
+          <small class="text-muted">Ideal: 50–60 chars</small>
+          <small id="titleCount" class="fw-semibold text-muted">{{ title_len }}/60</small>
+        </div>
+        <div class="progress mt-1" style="height:4px;border-radius:3px;">
+          <div class="progress-bar" id="titleBar"
+               style="width:{{ [title_len, 80]|min * 100 // 80 }}%;border-radius:3px;
+                      background:{% if title_truncated %}#dc2626{% elif title_short %}#f59e0b{% else %}#16a34a{% endif %}"></div>
+        </div>
+      </div>
+      <div>
+        <label class="form-label small fw-semibold">Improved Meta Description</label>
+        <textarea id="suggestDesc" class="form-control form-control-sm" rows="3"
+                  placeholder="Type your improved meta description..." maxlength="200">{{ fetched_desc }}</textarea>
+        <div class="d-flex justify-content-between mt-1">
+          <small class="text-muted">Ideal: 150–160 chars</small>
+          <small id="descCount" class="fw-semibold text-muted">{{ desc_len }}/160</small>
+        </div>
+        <div class="progress mt-1" style="height:4px;border-radius:3px;">
+          <div class="progress-bar" id="descBar"
+               style="width:{{ [desc_len, 200]|min * 100 // 200 }}%;border-radius:3px;
+                      background:{% if desc_truncated %}#dc2626{% elif desc_short or desc_missing %}#f59e0b{% else %}#16a34a{% endif %}"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Fill URL from tracked dropdown
+var trackedSelect = document.getElementById('trackedUrlSelect');
+if (trackedSelect) {
+  trackedSelect.addEventListener('change', function() {
+    if (this.value) document.getElementById('formUrl').value = this.value;
+  });
+}
+
+// Live preview update
+var titleInput = document.getElementById('suggestTitle');
+var descInput = document.getElementById('suggestDesc');
+var previewTitle = document.getElementById('previewTitle');
+var previewDesc = document.getElementById('previewDesc');
+var titleCount = document.getElementById('titleCount');
+var descCount = document.getElementById('descCount');
+var titleBar = document.getElementById('titleBar');
+var descBar = document.getElementById('descBar');
+
+function getBarColor(len, min, ideal, max) {
+  if (len === 0) return '#f59e0b';
+  if (len > max) return '#dc2626';
+  if (len < min) return '#f59e0b';
+  if (len <= ideal) return '#16a34a';
+  return '#f59e0b';
+}
+
+if (titleInput) {
+  titleInput.addEventListener('input', function() {
+    var val = this.value;
+    var len = val.length;
+    if (previewTitle) {
+      previewTitle.textContent = len > 60 ? val.substring(0, 60) + '…' : (val || 'Your improved title here');
+      previewTitle.className = 'serp-title' + (len > 60 ? ' truncated' : '');
+    }
+    if (titleCount) {
+      titleCount.textContent = len + '/60';
+      titleCount.className = 'fw-semibold ' + (len > 60 ? 'text-danger' : len < 30 ? 'text-warning' : 'text-success');
+    }
+    if (titleBar) {
+      titleBar.style.width = Math.min(len, 80) * 100 / 80 + '%';
+      titleBar.style.background = getBarColor(len, 30, 60, 70);
+    }
+  });
+}
+
+if (descInput) {
+  descInput.addEventListener('input', function() {
+    var val = this.value;
+    var len = val.length;
+    if (previewDesc) {
+      previewDesc.textContent = len > 160 ? val.substring(0, 160) + '…' : (val || 'Your improved meta description here.');
+      previewDesc.className = 'serp-desc' + (len > 160 ? ' truncated-text' : '');
+    }
+    if (descCount) {
+      descCount.textContent = len + '/160';
+      descCount.className = 'fw-semibold ' + (len > 160 ? 'text-danger' : len < 100 ? 'text-warning' : 'text-success');
+    }
+    if (descBar) {
+      descBar.style.width = Math.min(len, 200) * 100 / 200 + '%';
+      descBar.style.background = getBarColor(len, 100, 160, 170);
+    }
+  });
+}
+</script>
+{% endblock %}

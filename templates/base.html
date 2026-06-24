@@ -86,6 +86,18 @@
            href="{{ url_for('cannibalization') }}">
           <i class="bi bi-exclamation-triangle"></i> Cannibalization
         </a>
+        <a class="nav-link {% if request.endpoint == 'seo_grader' %}active{% endif %}"
+           href="{{ url_for('seo_grader') }}">
+          <i class="bi bi-clipboard-check"></i> Page Grader
+        </a>
+        <a class="nav-link {% if request.endpoint == 'content_calendar' %}active{% endif %}"
+           href="{{ url_for('content_calendar') }}">
+          <i class="bi bi-calendar3"></i> Content Calendar
+        </a>
+        <a class="nav-link {% if request.endpoint == 'serp_preview' %}active{% endif %}"
+           href="{{ url_for('serp_preview') }}">
+          <i class="bi bi-eye"></i> SERP Preview
+        </a>
       </nav>
     </div>
     <!-- Main content -->
