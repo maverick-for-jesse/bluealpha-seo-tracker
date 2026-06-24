@@ -632,6 +632,32 @@ def keyword_history(keyword_id):
     auto_detectable = {"title_tag","title_length","meta_desc","url_slug",
                        "h1_keyword","first_100_words","image_alt","internal_links"}
 
+    # Traffic estimates
+    latest = kw.latest_ranking()
+    current_pos = latest.position if latest else None
+    vol = kw.monthly_volume
+    current_traffic = estimate_traffic(current_pos, vol)
+
+    traffic_scenarios = []
+    if vol:
+        for pos, label in [(1,"#1"), (3,"#3"), (5,"#5"), (10,"#10")]:
+            t = estimate_traffic(pos, vol)
+            traffic_scenarios.append({
+                "pos": pos, "label": label,
+                "traffic": t,
+                "is_current": current_pos == pos,
+                "better_than_current": current_pos is None or pos < current_pos,
+            })
+
+    # Historical traffic trend (last 30 rankings)
+    traffic_history = []
+    for r in reversed(rankings[:30]):
+        traffic_history.append({
+            "date": r.checked_at.strftime("%b %d"),
+            "position": r.position,
+            "traffic": estimate_traffic(r.position, vol) if vol else None,
+        })
+
     return render_template(
         "keyword_history.html",
         kw=kw,
@@ -644,6 +670,11 @@ def keyword_history(keyword_id):
         completed_count=completed_count,
         total_items=len(SEO_CHECKLIST_ITEMS),
         auto_detectable=auto_detectable,
+        current_traffic=current_traffic,
+        current_pos=current_pos,
+        monthly_volume=vol,
+        traffic_scenarios=traffic_scenarios,
+        traffic_history=traffic_history,
     )
 
 

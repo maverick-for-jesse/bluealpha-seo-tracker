@@ -68,6 +68,54 @@
   </div>
 </div>
 
+<!-- Traffic Estimates -->
+{% if monthly_volume %}
+<div class="card mb-4">
+  <div class="card-header"><i class="bi bi-graph-up-arrow me-2"></i>Traffic Estimates</div>
+  <div class="card-body">
+    <div class="row g-3 mb-3">
+      <!-- Current traffic -->
+      <div class="col-6 col-md-3">
+        <div class="text-center p-3 rounded" style="background:#f4f7fb">
+          <div class="fw-bold fs-3 {% if current_traffic %}text-success{% else %}text-muted{% endif %}">
+            {% if current_traffic %}~{{ "{:,}".format(current_traffic) }}{% else %}0{% endif %}
+          </div>
+          <div class="text-muted small">Est. visits/mo<br><span class="fw-semibold">Current ({% if current_pos %}#{{ current_pos }}{% else %}not ranking{% endif %})</span></div>
+        </div>
+      </div>
+      <!-- Scenarios -->
+      {% for s in traffic_scenarios %}
+      <div class="col-6 col-md-3">
+        <div class="text-center p-3 rounded {% if s.is_current %}border border-success{% endif %}"
+             style="background:{% if s.is_current %}#f0fff4{% else %}#f4f7fb{% endif %}">
+          <div class="fw-bold fs-3" style="color:{% if s.is_current %}#16a34a{% elif s.better_than_current %}#2563a8{% else %}#9ca3af{% endif %}">
+            ~{{ "{:,}".format(s.traffic) }}
+          </div>
+          <div class="text-muted small">Est. visits/mo<br>
+            <span class="fw-semibold">If ranked {{ s.label }}</span>
+            {% if s.is_current %}<span class="badge bg-success ms-1" style="font-size:.65rem">You</span>{% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="text-muted" style="font-size:.8rem">
+      Based on <strong>{{ "{:,}".format(monthly_volume) }} monthly searches</strong> × Google average CTR by position.
+      {% if not current_traffic %}
+        <span class="text-warning">You're not currently ranking in the top 100 for this keyword.</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% elif not monthly_volume %}
+<div class="alert mb-4" style="background:#fff8e1;border:1px solid #ffd54f;border-radius:10px;font-size:.88rem">
+  <i class="bi bi-info-circle me-2"></i>
+  <strong>No search volume data.</strong> Go to <a href="{{ url_for('keyword_research') }}">Keyword Research</a>,
+  search for "{{ kw.keyword }}", and click Track to unlock traffic estimates.
+</div>
+{% endif %}
+
 <!-- Chart -->
 <div class="card mb-4">
   <div class="card-header">
