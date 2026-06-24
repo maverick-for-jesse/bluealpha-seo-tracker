@@ -69,8 +69,8 @@ TARGET_DOMAIN = "bluealphabelts.com"
 ADMIN_EMAIL = "jesse@bluealpha.us"
 ADMIN_PASSWORD_HASH = generate_password_hash("BlueAlphaSEO2026!")
 
-DATAFORSEO_LOGIN = os.environ.get("DATAFORSEO_LOGIN", "jesse@bluealpha.us")
-DATAFORSEO_PASSWORD = os.environ.get("DATAFORSEO_PASSWORD", "6b56bc77d7e38ca0")
+DATAFORSEO_LOGIN = os.environ.get("DATAFORSEO_LOGIN", "")
+DATAFORSEO_PASSWORD = os.environ.get("DATAFORSEO_PASSWORD", "")
 
 # ---------------------------------------------------------------------------
 # Models
