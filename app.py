@@ -4,6 +4,7 @@ import csv
 import json
 import re
 import logging
+import secrets
 from datetime import datetime, timedelta, date
 from functools import wraps
 from urllib.parse import urlparse
@@ -70,7 +71,7 @@ def get_twilio_config():
 
 TARGET_DOMAIN = "bluealphabelts.com"
 ADMIN_EMAIL = "jesse@bluealpha.us"
-ADMIN_PASSWORD_HASH = generate_password_hash("BlueAlphaSEO2026!")
+DEFAULT_PASSWORD = "BlueAlphaSEO2026!"
 
 DATAFORSEO_LOGIN = os.environ.get("DATAFORSEO_LOGIN", "")
 DATAFORSEO_PASSWORD = os.environ.get("DATAFORSEO_PASSWORD", "")
@@ -188,6 +189,35 @@ class SeoChecklist(db.Model):
     detail = db.Column(db.String(500), nullable=True)  # e.g. "Title is 45 chars"
     keyword_ref = db.relationship("Keyword", backref=db.backref("checklist_items", lazy="dynamic",
                                   cascade="all, delete-orphan"))
+
+
+class AppSetting(db.Model):
+    __tablename__ = "app_settings"
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(100), unique=True, nullable=False)
+    value = db.Column(db.Text, nullable=True)
+
+
+def get_setting(key, default=None):
+    row = AppSetting.query.filter_by(key=key).first()
+    return row.value if row else default
+
+
+def set_setting(key, value):
+    row = AppSetting.query.filter_by(key=key).first()
+    if row:
+        row.value = value
+    else:
+        row = AppSetting(key=key, value=value)
+        db.session.add(row)
+    db.session.commit()
+
+
+def get_admin_password_hash():
+    stored = get_setting("admin_password_hash")
+    if stored:
+        return stored
+    return generate_password_hash(DEFAULT_PASSWORD)
 
 
 # ---------------------------------------------------------------------------
@@ -489,7 +519,7 @@ def login():
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
-        if email == ADMIN_EMAIL.lower() and check_password_hash(ADMIN_PASSWORD_HASH, password):
+        if email == ADMIN_EMAIL.lower() and check_password_hash(get_admin_password_hash(), password):
             login_user(AdminUser(), remember=True)
             next_page = request.args.get("next")
             return redirect(next_page or url_for("dashboard"))
@@ -776,6 +806,76 @@ def keyword_history(keyword_id):
         traffic_scenarios=traffic_scenarios,
         traffic_history=traffic_history,
     )
+
+
+# ---------------------------------------------------------------------------
+# Routes — Password Management
+# ---------------------------------------------------------------------------
+@app.route("/change-password", methods=["GET", "POST"])
+@login_required
+def change_password():
+    if request.method == "POST":
+        current_pw = request.form.get("current_password", "")
+        new_pw = request.form.get("new_password", "")
+        confirm_pw = request.form.get("confirm_password", "")
+        if not check_password_hash(get_admin_password_hash(), current_pw):
+            flash("Current password is incorrect.", "danger")
+        elif len(new_pw) < 8:
+            flash("New password must be at least 8 characters.", "warning")
+        elif new_pw != confirm_pw:
+            flash("New passwords don't match.", "warning")
+        else:
+            set_setting("admin_password_hash", generate_password_hash(new_pw))
+            flash("Password updated successfully! ✅", "success")
+            return redirect(url_for("dashboard"))
+    return render_template("change_password.html")
+
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        if email == ADMIN_EMAIL.lower():
+            token = secrets.token_urlsafe(32)
+            expires = datetime.utcnow() + timedelta(hours=1)
+            set_setting("reset_token", token)
+            set_setting("reset_token_expires", expires.isoformat())
+            reset_url = url_for("reset_password", token=token, _external=True)
+            msg = f"🔑 Blue Alpha SEO password reset link:\n{reset_url}\n\nExpires in 1 hour."
+            send_whatsapp_message(msg)
+            flash("Reset link sent to your WhatsApp. Check your messages!", "success")
+        else:
+            flash("If that email is registered, a reset link has been sent.", "info")
+        return redirect(url_for("forgot_password"))
+    return render_template("forgot_password.html")
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    stored_token = get_setting("reset_token")
+    expires_str = get_setting("reset_token_expires")
+    valid = False
+    if stored_token and stored_token == token and expires_str:
+        expires = datetime.fromisoformat(expires_str)
+        if datetime.utcnow() < expires:
+            valid = True
+    if not valid:
+        flash("This reset link is invalid or has expired.", "danger")
+        return redirect(url_for("login"))
+    if request.method == "POST":
+        new_pw = request.form.get("new_password", "")
+        confirm_pw = request.form.get("confirm_password", "")
+        if len(new_pw) < 8:
+            flash("Password must be at least 8 characters.", "warning")
+        elif new_pw != confirm_pw:
+            flash("Passwords don't match.", "warning")
+        else:
+            set_setting("admin_password_hash", generate_password_hash(new_pw))
+            set_setting("reset_token", None)
+            set_setting("reset_token_expires", None)
+            flash("Password reset successfully! You can now log in. ✅", "success")
+            return redirect(url_for("login"))
+    return render_template("reset_password.html", token=token)
 
 
 # ---------------------------------------------------------------------------
