@@ -82,6 +82,10 @@
            href="{{ url_for('keyword_research') }}">
           <i class="bi bi-search"></i> Keyword Research
         </a>
+        <a class="nav-link {% if request.endpoint == 'product_namer' %}active{% endif %}"
+           href="{{ url_for('product_namer') }}">
+          <i class="bi bi-tags"></i> Product Namer
+        </a>
         <a class="nav-link {% if request.endpoint == 'competitors' %}active{% endif %}"
            href="{{ url_for('competitors') }}">
           <i class="bi bi-bar-chart"></i> Competitors

@@ -1226,6 +1226,213 @@ def dataforseo_related_keywords(seed: str, location_code: int = 2840, language_c
     return [k for k, _ in keywords[:30]]
 
 
+@app.route("/product-namer", methods=["GET", "POST"])
+@login_required
+def product_namer():
+    results = None
+    scored = None
+    description = None
+    score_name = None
+    error = None
+
+    if request.method == "POST":
+        action = request.form.get("action", "generate")
+        location_code = 2840
+
+        # --- OPTION 1: Generate name suggestions ---
+        if action == "generate":
+            description = request.form.get("description", "").strip()
+            category = request.form.get("category", "").strip()
+            if not description:
+                flash("Please describe the product.", "warning")
+            else:
+                try:
+                    # Build seed keywords from description + category
+                    seeds = []
+                    if category:
+                        seeds.append(category)
+                    # Extract key phrases from description (2-3 word combos)
+                    words = [w.lower() for w in description.split() if len(w) > 3
+                             and w.lower() not in {'with','that','this','have','for','and','the','our','very','also'}]
+                    # Add some seed combos
+                    seeds.append(description[:50])
+                    if category:
+                        seeds.append(f"{category} belt")
+                        seeds.append(f"tactical {category}")
+                        seeds.append(f"edc {category}")
+
+                    # Get related keywords for each seed
+                    all_keywords = set()
+                    for seed in seeds[:3]:
+                        try:
+                            related = dataforseo_related_keywords(seed, location_code=location_code)
+                            all_keywords.update(related[:20])
+                        except Exception:
+                            pass
+
+                    # Add category itself
+                    if category:
+                        all_keywords.add(category)
+
+                    if not all_keywords:
+                        error = "Could not generate suggestions. Try a more specific description."
+                    else:
+                        kw_list = list(all_keywords)[:40]
+                        vol_data = dataforseo_keyword_data(kw_list, location_code=location_code)
+
+                        tracked_set = {kw.keyword.lower() for kw in Keyword.query.all()}
+
+                        results = []
+                        for kw_text in kw_list:
+                            d = vol_data.get(kw_text.lower(), {})
+                            vol = d.get("search_volume")
+                            comp = d.get("competition")
+                            cpc_val = d.get("cpc")
+                            diff = estimate_seo_difficulty(vol, comp, cpc_val)
+                            results.append({
+                                "name": kw_text,
+                                "search_volume": vol,
+                                "difficulty": diff,
+                                "cpc": cpc_val,
+                                "traffic_at_1": estimate_traffic(1, vol) if vol else None,
+                                "traffic_at_3": estimate_traffic(3, vol) if vol else None,
+                                "already_tracked": kw_text.lower() in tracked_set,
+                                "score": _name_score(vol, diff),
+                            })
+
+                        # Sort by score desc
+                        results.sort(key=lambda r: r["score"] or 0, reverse=True)
+                        results = results[:20]
+
+                except Exception as e:
+                    logger.error(f"Product namer generate error: {e}")
+                    error = str(e)
+
+        # --- OPTION 3: Score a proposed name ---
+        elif action == "score":
+            score_name = request.form.get("score_name", "").strip()
+            if not score_name:
+                flash("Please enter a name to score.", "warning")
+            else:
+                try:
+                    vol_data = dataforseo_keyword_data([score_name], location_code=location_code)
+                    d = vol_data.get(score_name.lower(), {})
+                    vol = d.get("search_volume")
+                    comp = d.get("competition")
+                    cpc_val = d.get("cpc")
+                    diff = estimate_seo_difficulty(vol, comp, cpc_val)
+                    overall = _name_score(vol, diff)
+
+                    # Get related to show alternatives
+                    alternatives = []
+                    try:
+                        related = dataforseo_related_keywords(score_name, location_code=location_code)
+                        alt_data = dataforseo_keyword_data(related[:10], location_code=location_code)
+                        for kw in related[:8]:
+                            ad = alt_data.get(kw.lower(), {})
+                            av = ad.get("search_volume")
+                            ac = ad.get("competition")
+                            acpc = ad.get("cpc")
+                            alternatives.append({
+                                "name": kw,
+                                "search_volume": av,
+                                "difficulty": estimate_seo_difficulty(av, ac, acpc),
+                                "score": _name_score(av, estimate_seo_difficulty(av, ac, acpc)),
+                            })
+                        alternatives.sort(key=lambda x: x["score"] or 0, reverse=True)
+                    except Exception:
+                        pass
+
+                    scored = {
+                        "name": score_name,
+                        "search_volume": vol,
+                        "difficulty": diff,
+                        "cpc": cpc_val,
+                        "traffic_at_1": estimate_traffic(1, vol) if vol else None,
+                        "traffic_at_3": estimate_traffic(3, vol) if vol else None,
+                        "score": overall,
+                        "score_breakdown": _name_score_breakdown(vol, diff),
+                        "alternatives": alternatives,
+                    }
+                except Exception as e:
+                    logger.error(f"Product namer score error: {e}")
+                    error = str(e)
+
+    return render_template("product_namer.html",
+                           results=results, scored=scored,
+                           description=description, score_name=score_name,
+                           error=error)
+
+
+def _name_score(search_volume, difficulty):
+    """Score a product name 0-100 for SEO viability."""
+    if search_volume is None:
+        return 0
+    # Volume score (0-60): log scale
+    import math
+    if search_volume <= 0:
+        vol_score = 0
+    elif search_volume >= 50000:
+        vol_score = 60
+    elif search_volume >= 10000:
+        vol_score = 50
+    elif search_volume >= 5000:
+        vol_score = 42
+    elif search_volume >= 1000:
+        vol_score = 32
+    elif search_volume >= 500:
+        vol_score = 22
+    elif search_volume >= 100:
+        vol_score = 14
+    else:
+        vol_score = 6
+
+    # Difficulty score (0-40): lower difficulty = higher score
+    diff = difficulty or 50
+    diff_score = max(0, 40 - int(diff * 0.4))
+
+    return min(100, vol_score + diff_score)
+
+
+def _name_score_breakdown(search_volume, difficulty):
+    """Return score breakdown for display."""
+    import math
+    vol = search_volume or 0
+    diff = difficulty or 50
+
+    if vol >= 10000:
+        vol_label, vol_color = "Very High", "success"
+    elif vol >= 1000:
+        vol_label, vol_color = "Good", "success"
+    elif vol >= 100:
+        vol_label, vol_color = "Low", "warning"
+    else:
+        vol_label, vol_color = "Very Low", "danger"
+
+    if diff < 30:
+        diff_label, diff_color = "Easy to rank", "success"
+    elif diff < 60:
+        diff_label, diff_color = "Moderate", "warning"
+    else:
+        diff_label, diff_color = "Hard to rank", "danger"
+
+    score = _name_score(vol, diff)
+    if score >= 70:
+        verdict = ("🏆 Excellent name", "Strong search demand with achievable ranking difficulty. Go for it.", "success")
+    elif score >= 50:
+        verdict = ("👍 Good name", "Decent search volume. Worth using if it fits the product.", "primary")
+    elif score >= 30:
+        verdict = ("⚠️ Average name", "Low search volume or high competition. Consider alternatives.", "warning")
+    else:
+        verdict = ("❌ Poor SEO name", "Very little search demand. People aren't searching for this phrase.", "danger")
+
+    return {
+        "vol_label": vol_label, "vol_color": vol_color,
+        "diff_label": diff_label, "diff_color": diff_color,
+        "verdict": verdict,
+    }
+
+
 @app.route("/keyword-research", methods=["GET", "POST"])
 @login_required
 def keyword_research():

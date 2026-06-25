@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block title %}Product Namer — Blue Alpha SEO{% endblock %}
+
+{% block head %}
+<style>
+  .score-ring { width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.5rem;font-weight:700;border:5px solid; }
+  .score-excellent { border-color:#16a34a;color:#16a34a;background:#f0fff4; }
+  .score-good { border-color:#2563a8;color:#2563a8;background:#e8f0fe; }
+  .score-average { border-color:#d97706;color:#d97706;background:#fffbeb; }
+  .score-poor { border-color:#dc2626;color:#dc2626;background:#fef2f2; }
+  .name-card { border-left:4px solid var(--ba-blue);transition:box-shadow .15s; }
+  .name-card:hover { box-shadow:0 4px 12px rgba(0,0,0,.1); }
+  .rank-pill { display:inline-block;padding:2px 10px;border-radius:20px;font-size:.78rem;font-weight:600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-4">
+  <div>
+    <h2 class="mb-0 fw-bold" style="color:var(--ba-navy)">🏷️ Product Namer</h2>
+    <p class="text-muted mb-0" style="font-size:.9rem">Generate SEO-optimized product names or score your own ideas</p>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-danger mb-4"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>
+{% endif %}
+
+<div class="row g-4">
+
+  <!-- LEFT: Generator -->
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold"><i class="bi bi-magic me-2"></i>Generate Name Ideas</div>
+      <div class="card-body">
+        <form method="POST" id="generateForm">
+          <input type="hidden" name="action" value="generate">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Describe the product</label>
+            <textarea name="description" class="form-control" rows="3"
+                      placeholder="e.g. a slim belt with no metal buckle that works great for concealed carry and going through airport security"
+                      required>{{ description or '' }}</textarea>
+            <div class="form-text">The more specific, the better suggestions you'll get.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Category <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="text" name="category" class="form-control"
+                   placeholder="e.g. edc belt, tactical belt, gun belt">
+          </div>
+          <button type="submit" class="btn btn-navy w-100" id="genBtn">
+            <span class="spinner-border spinner-border-sm me-1" id="genSpinner" style="display:none"></span>
+            <i class="bi bi-magic me-1" id="genIcon"></i>Generate Names
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Scorer -->
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold"><i class="bi bi-speedometer me-2"></i>Score a Name</div>
+      <div class="card-body">
+        <form method="POST" id="scoreForm">
+          <input type="hidden" name="action" value="score">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Proposed product name</label>
+            <input type="text" name="score_name" class="form-control form-control-lg"
+                   placeholder="e.g. Low Profile EDC Belt"
+                   value="{{ score_name or '' }}" required>
+            <div class="form-text">Enter exactly what you'd name the product on the website.</div>
+          </div>
+          <button type="submit" class="btn btn-navy w-100 mt-2" id="scoreBtn">
+            <span class="spinner-border spinner-border-sm me-1" id="scoreSpinner" style="display:none"></span>
+            <i class="bi bi-speedometer me-1" id="scoreIcon"></i>Score This Name
+          </button>
+        </form>
+
+        {% if scored %}
+        <hr class="my-4">
+        <!-- Score result -->
+        <div class="d-flex align-items-center gap-4 mb-3">
+          {% set s = scored.score %}
+          <div class="score-ring {% if s >= 70 %}score-excellent{% elif s >= 50 %}score-good{% elif s >= 30 %}score-average{% else %}score-poor{% endif %}">
+            {{ s }}
+          </div>
+          <div>
+            <div class="fw-bold fs-5">{{ scored.name }}</div>
+            {% set verdict = scored.score_breakdown.verdict %}
+            <span class="badge bg-{{ verdict[2] }}">{{ verdict[0] }}</span>
+            <div class="text-muted small mt-1">{{ verdict[1] }}</div>
+          </div>
+        </div>
+
+        <div class="row g-2 mb-3">
+          <div class="col-6">
+            <div class="p-2 rounded text-center" style="background:#f4f7fb">
+              <div class="fw-bold {% if scored.search_volume and scored.search_volume >= 1000 %}text-success{% elif scored.search_volume %}text-warning{% else %}text-danger{% endif %}">
+                {% if scored.search_volume %}{{ "{:,}".format(scored.search_volume) }}{% else %}—{% endif %}
+              </div>
+              <div class="text-muted" style="font-size:.75rem">Monthly Searches</div>
+              <div class="small">
+                <span class="badge bg-{{ scored.score_breakdown.vol_color }} bg-opacity-75">{{ scored.score_breakdown.vol_label }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="p-2 rounded text-center" style="background:#f4f7fb">
+              <div class="fw-bold {% if scored.difficulty and scored.difficulty < 30 %}text-success{% elif scored.difficulty and scored.difficulty < 60 %}text-warning{% else %}text-danger{% endif %}">
+                {% if scored.difficulty is not none %}{{ scored.difficulty }}/100{% else %}—{% endif %}
+              </div>
+              <div class="text-muted" style="font-size:.75rem">SEO Difficulty</div>
+              <div class="small">
+                <span class="badge bg-{{ scored.score_breakdown.diff_color }} bg-opacity-75">{{ scored.score_breakdown.diff_label }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {% if scored.traffic_at_1 %}
+        <div class="p-2 rounded mb-3" style="background:#f4f7fb">
+          <div class="text-muted small fw-semibold mb-1">Traffic Potential (est. monthly visits)</div>
+          <div class="d-flex gap-3">
+            <div class="text-center"><div class="fw-bold text-success">~{{ "{:,}".format(scored.traffic_at_1) }}</div><div style="font-size:.72rem;color:#9ca3af">if #1</div></div>
+            <div class="text-center"><div class="fw-bold text-warning">~{{ "{:,}".format(scored.traffic_at_3) }}</div><div style="font-size:.72rem;color:#9ca3af">if #3</div></div>
+          </div>
+        </div>
+        {% endif %}
+
+        {% if scored.alternatives %}
+        <div>
+          <div class="text-muted small fw-semibold mb-2">Better alternatives to consider:</div>
+          {% for alt in scored.alternatives[:4] %}
+          {% if alt.score and alt.score > scored.score %}
+          <div class="d-flex justify-content-between align-items-center py-1 border-bottom">
+            <span class="small">{{ alt.name }}</span>
+            <div class="d-flex gap-2 align-items-center">
+              {% if alt.search_volume %}<span class="text-muted" style="font-size:.75rem">{{ "{:,}".format(alt.search_volume) }}/mo</span>{% endif %}
+              <span class="rank-pill {% if alt.score >= 70 %}bg-success text-white{% elif alt.score >= 50 %}bg-primary text-white{% else %}bg-warning text-dark{% endif %}">{{ alt.score }}</span>
+            </div>
+          </div>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Generator results -->
+{% if results %}
+<div class="card mt-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-list-stars me-2"></i>Name Suggestions for "{{ description }}"</span>
+    <small class="text-white-50">Sorted by SEO score</small>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Name / Keyword</th>
+          <th class="text-center">SEO Score</th>
+          <th class="text-end">Monthly Searches</th>
+          <th class="text-center">Difficulty</th>
+          <th class="text-end">Traffic if #1</th>
+          <th class="text-center">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr>
+          <td>
+            <span class="fw-semibold">{{ r.name }}</span>
+            {% if r.already_tracked %}<span class="badge bg-success ms-1" style="font-size:.65rem">Tracked</span>{% endif %}
+          </td>
+          <td class="text-center">
+            {% set s = r.score or 0 %}
+            <span class="rank-pill {% if s >= 70 %}bg-success text-white{% elif s >= 50 %}bg-primary text-white{% elif s >= 30 %}bg-warning text-dark{% else %}bg-secondary text-white{% endif %}">
+              {{ s }}
+            </span>
+          </td>
+          <td class="text-end">
+            {% if r.search_volume %}
+              {% if r.search_volume >= 10000 %}<span class="volume-high">{{ "{:,}".format(r.search_volume) }}</span>
+              {% elif r.search_volume >= 1000 %}<span class="volume-mid">{{ "{:,}".format(r.search_volume) }}</span>
+              {% else %}<span class="volume-low">{{ "{:,}".format(r.search_volume) }}</span>{% endif %}
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="text-center">
+            {% if r.difficulty is not none %}
+              {% set d = r.difficulty|int %}
+              {% if d < 30 %}<span class="diff-easy">{{ d }}</span>
+              {% elif d < 60 %}<span class="diff-medium">{{ d }}</span>
+              {% else %}<span class="diff-hard">{{ d }}</span>{% endif %}
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="text-end">
+            {% if r.traffic_at_1 %}<span class="text-success fw-semibold">~{{ "{:,}".format(r.traffic_at_1) }}</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="text-center">
+            {% if not r.already_tracked %}
+            <form method="POST" action="{{ url_for('keyword_research_add_tracked') }}">
+              <input type="hidden" name="keyword" value="{{ r.name }}">
+              <input type="hidden" name="volume" value="{{ r.search_volume or '' }}">
+              <button type="submit" class="btn btn-sm btn-outline-primary" style="font-size:.75rem;padding:2px 8px">
+                + Track
+              </button>
+            </form>
+            {% else %}
+            <span class="text-muted" style="font-size:.78rem">✓</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('generateForm').addEventListener('submit', function() {
+  document.getElementById('genSpinner').style.display = 'inline-block';
+  document.getElementById('genIcon').style.display = 'none';
+  document.getElementById('genBtn').disabled = true;
+  document.getElementById('genBtn').childNodes[2].textContent = ' Generating…';
+});
+document.getElementById('scoreForm').addEventListener('submit', function() {
+  document.getElementById('scoreSpinner').style.display = 'inline-block';
+  document.getElementById('scoreIcon').style.display = 'none';
+  document.getElementById('scoreBtn').disabled = true;
+});
+</script>
+{% endblock %}
