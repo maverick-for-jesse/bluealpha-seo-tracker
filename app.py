@@ -1348,22 +1348,36 @@ def product_namer():
             else:
                 try:
                     # Build seed keywords from description + category
+                    STOP_WORDS = {'with','that','this','have','for','and','the','our','very','also',
+                                  'without','other','carry','designed','highly','sized','securely'}
+                    words = [w.strip('.,') for w in description.split()
+                             if len(w.strip('.,')) > 3
+                             and w.lower().strip('.,') not in STOP_WORDS]
+
                     seeds = []
                     if category:
                         seeds.append(category)
-                    # Extract key phrases from description (2-3 word combos)
-                    words = [w.lower() for w in description.split() if len(w) > 3
-                             and w.lower() not in {'with','that','this','have','for','and','the','our','very','also'}]
-                    # Add some seed combos
-                    seeds.append(description[:50])
+
+                    # Build short 2-3 word seed phrases from key nouns
+                    if len(words) >= 2:
+                        seeds.append(f"{words[0]} {words[1]}")
+                    if len(words) >= 3:
+                        seeds.append(f"{words[0]} {words[1]} {words[2]}")
+                    # Add tactical/edc modifiers around strongest noun-looking words
+                    for w in words[:4]:
+                        seeds.append(f"tactical {w.lower()}")
+                        seeds.append(f"edc {w.lower()}")
                     if category:
-                        seeds.append(f"{category} belt")
+                        seeds.append(f"{category} pouch")
                         seeds.append(f"tactical {category}")
                         seeds.append(f"edc {category}")
 
+                    # Deduplicate and limit
+                    seeds = list(dict.fromkeys(seeds))[:5]
+
                     # Get related keywords for each seed
                     all_keywords = set()
-                    for seed in seeds[:3]:
+                    for seed in seeds:
                         try:
                             related = dataforseo_related_keywords(seed, location_code=location_code)
                             all_keywords.update(related[:20])
