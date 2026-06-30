@@ -5,6 +5,7 @@ import json
 import re
 import logging
 import secrets
+import threading
 from datetime import datetime, timedelta, date
 from functools import wraps
 from urllib.parse import urlparse
@@ -881,21 +882,32 @@ def reset_password(token):
 # ---------------------------------------------------------------------------
 # Routes — Cron / API
 # ---------------------------------------------------------------------------
+def _run_rank_check_bg():
+    """Background thread: check all rankings then optionally send Monday summary."""
+    with app.app_context():
+        try:
+            results = check_all_active_keywords()
+            logger.info(f"Background rank check complete: {len(results)} keywords")
+        except Exception as e:
+            logger.error(f"Background rank check failed: {e}")
+            return
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+        if now_et.weekday() == 0:  # Monday
+            try:
+                summary = build_weekly_summary()
+                send_whatsapp_message(summary)
+            except Exception as e:
+                logger.error(f"Weekly summary failed: {e}")
+
+
 @app.route("/cron/check-rankings")
 def cron_check_rankings():
     secret = request.args.get("secret", "")
     if secret != get_cron_secret():
         abort(403)
-    results = check_all_active_keywords()
-    # Check if it's Monday for weekly summary (UTC ~14:00 = 9-10 AM ET)
-    now_et = datetime.now(ZoneInfo("America/New_York"))
-    if now_et.weekday() == 0:  # Monday
-        try:
-            summary = build_weekly_summary()
-            send_whatsapp_message(summary)
-        except Exception as e:
-            logger.error(f"Weekly summary failed: {e}")
-    return jsonify({"status": "ok", "checked": len(results), "results": results})
+    t = threading.Thread(target=_run_rank_check_bg, daemon=True)
+    t.start()
+    return jsonify({"status": "ok", "message": "rank check started in background"})
 
 
 @app.route("/cron/weekly-summary")
